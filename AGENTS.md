@@ -34,6 +34,7 @@ node --test tests/*.test.js      # unit tests (Node 18+), must stay green
 ```
 
 - `localhost` is a secure context, so the service worker, Wake Lock and IndexedDB all work there.
+- GitHub Actions runs the suite on Node 18 and 24 for pull requests and pushes to `main`. `tests/assets.test.js` checks offline asset coverage and translation key/parameter parity. CI does not install application dependencies or build the app.
 - **Developer options** sit at the bottom of the home screen:
   - *Time speed 10×* makes a 40-minute workout take 4 minutes.
   - *Simulated runner* chooses whether the plan is too easy, a good fit, too hard or random for the simulated runner.
@@ -144,7 +145,7 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 | 4 | IndexedDB storage, crash recovery, history, detail, progress, stats, recommendations | done |
 | 5 | Onboarding, settings, JSON backup/import, CSV, TCX, live HR strip, zone in bpm, screen-on video fallback | done |
 
-146 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips.
+149 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips.
 
 ## Known gaps and open items
 
