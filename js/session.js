@@ -5,6 +5,7 @@ import { Emitter } from './emitter.js';
 import { WorkoutEngine } from './workout.js';
 import { smoothedHr, hrTrend, pctOfMax, zoneStatus } from './hrmath.js';
 import { clone } from './settings.js';
+import { WorkoutCoach } from './coaching.js';
 
 const TICK_MS = 200;
 const STALE_MS = 5000; // HR older than this (real time) counts as missing
@@ -60,6 +61,9 @@ export class WorkoutSession extends Emitter {
     this.smooth = null;
     this.trend = null;
     this.zone = null; // 'below' | 'in' | 'above' | null
+    this.coach = new WorkoutCoach();
+    this.hrConnected = true;
+    this.contact = null;
 
     this.startedAt = null;
     this.endedAt = null;
@@ -98,10 +102,14 @@ export class WorkoutSession extends Emitter {
       this._applyTargets(e.phase);
       // Re-evaluate against the new phase's zone right away (no hysteresis carry-over).
       this.zone = zoneStatus(pctOfMax(this.smooth, this.settings.maxHr), e.phase.zone, null);
+      this._updateCoaching();
       this.emit('phase', e);
     });
     this.engine.on('cue', (e) => this.emit('cue', e));
-    this.engine.on('state', (e) => this.emit('state', e));
+    this.engine.on('state', (e) => {
+      if (e.state !== 'running') this.coach.defer(this.engine.elapsedMs / 1000);
+      this.emit('state', e);
+    });
     this.engine.on('finish', (e) => {
       const last = this.engine.phase;
       if (last && this._adjustedInPhase) this.targets[last.type] = { ...this.actual };
@@ -199,11 +207,13 @@ export class WorkoutSession extends Emitter {
   }
 
   /** A reading from a real strap. */
-  pushHr(bpm, rr) {
+  pushHr(bpm, rr, contact = this.contact) {
     if (!(bpm > 0)) return;
     this.lastHr = bpm;
     this.lastHrAt = this.now();
     this.lastRr = rr || [];
+    this.contact = contact;
+    this._updateCoaching();
     this.emit('hr', { bpm });
   }
 
@@ -211,11 +221,40 @@ export class WorkoutSession extends Emitter {
     this.battery = level;
   }
 
+  setStrapStatus(connected, contact = null) {
+    this.hrConnected = connected;
+    this.contact = contact;
+    this._updateCoaching();
+    this.emit('tick', this.snapshot());
+  }
+
+  _updateCoaching() {
+    this.coach.update(this.snapshot(), this.settings, this.hrConnected && this.contact !== false);
+  }
+
+  confirmSuggestion(id) {
+    // Recheck the clock, phase and signal at the tap, not just at the last paint.
+    this.tick();
+    const p = this.coach.suggestion;
+    if (!p || p.id !== id) return false;
+    this.coach.defer(this.engine.elapsedMs / 1000, 60, p.kind);
+    this.adjust(p.kind, p.to - this.actual[p.kind]);
+    return true;
+  }
+
+  dismissSuggestion(id) {
+    this.tick();
+    if (!this.coach.suggestion || this.coach.suggestion.id !== id) return;
+    this.coach.defer(this.engine.elapsedMs / 1000);
+    this.emit('tick', this.snapshot());
+  }
+
   /** Change the logged treadmill speed or incline by `delta`. */
   adjust(kind, delta) {
     const [lo, hi] = LIMITS[kind];
     const value = round1(clamp(this.actual[kind] + delta, lo, hi));
     if (value === this.actual[kind]) return;
+    this.coach.defer(this.engine.elapsedMs / 1000);
     this.actual[kind] = value;
     this._adjustedInPhase = true;
     const t = Math.floor(this.engine.elapsedMs / 1000);
@@ -248,6 +287,7 @@ export class WorkoutSession extends Emitter {
         this._stepSim(1, false);
       }
     }
+    this._updateCoaching();
     if (this.engine.state !== 'finished') this.emit('tick', this.snapshot());
   }
 
@@ -295,6 +335,7 @@ export class WorkoutSession extends Emitter {
     if (phase) {
       this.zone = zoneStatus(pctOfMax(this.smooth, this.settings.maxHr), phase.zone, this.zone);
     }
+    this._updateCoaching();
   }
 
   /** Assume the user sets the treadmill to the phase target; they correct it with +/-. */
@@ -355,6 +396,7 @@ export class WorkoutSession extends Emitter {
       target: phase ? { ...this.targets[phase.type] } : null,
       source: this.sim ? 'sim' : 'ble',
       battery: this.battery,
+      suggestion: this.coach.suggestion,
     };
   }
 

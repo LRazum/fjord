@@ -13,7 +13,7 @@ Norwegian 4×4 interval training on a treadmill, guided by live heart rate from 
 |---|---|---|
 | 1 | Skeleton, workout state machine, HR simulator, workout screen, offline shell | ✅ |
 | 2 | Bluetooth strap: connection, HR measurement parsing, battery, auto-reconnect | ✅ |
-| 3 | Coaching cues, voice and sounds | dropped for now |
+| 3 | Voice and sounds | dropped for now; optional text suggestions are available |
 | 4 | Storage (IndexedDB), crash recovery, history, workout detail, progress, statistics | ✅ |
 | 5 | Onboarding, settings, backup export/import, CSV, TCX | ✅ |
 
@@ -39,7 +39,7 @@ Firefox notes:
 
 ## Tests
 
-The pure modules (`workout.js`, `session.js`, `ready.js`, `hrmath.js`, `hrparse.js`, `ble.js`, `simulator.js`, `stats.js`, `backup.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
+The pure modules (`workout.js`, `session.js`, `ready.js`, `coaching.js`, `settings.js`, `hrmath.js`, `hrparse.js`, `ble.js`, `simulator.js`, `stats.js`, `backup.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
 
 ```bash
 sudo apt install nodejs
@@ -95,6 +95,7 @@ js/
   workout.js        plan builder + workout state machine (pure, no DOM)
   session.js        running workout: timer, HR recording, treadmill log
   ready.js          live HR preview and five-second countdown (pure, no DOM)
+  coaching.js       optional live treadmill suggestions (pure, no DOM)
   simulator.js      simulated heart rate (pure, no DOM)
   hrmath.js         smoothing, trend, zone hysteresis (pure, no DOM)
   format.js         time/number formatting
@@ -130,7 +131,8 @@ When you add a new file, also add it to the `ASSETS` list in `sw.js` and bump `V
 - Workouts shorter than one minute are not saved.
 - **Workout detail:** HR chart with zone bands and phase markers; per interval avg/max HR, time in zone, time to reach the zone, avg speed/incline, % HRmax over the last 2 min; per phase avg/min/max HR and the HR drop 1 min after each interval.
 - **Progress:** per week, speed at 90 % HRmax (flat-equivalent speed from the last 2 min of each interval, scaled to 90 % HRmax: going up means getting fitter), interval HR, time in zone, speed and incline; total workouts, week streaks.
-- **Next session:** if HR in the last 2 min of the intervals stayed below the zone, the next interval target goes up (speed, incline or both, by your preference); above the zone, it goes down. For real-strap workouts this is applied to the plan automatically; for simulated ones there is a button.
+- **Maximum heart rate:** choose a known maximum or an age estimate (`208 − 0.7 × age`) in onboarding or Settings. Estimated values are labelled on Home, Ready and the workout screen. The initial 190 is a fallback, not a personal value: choose a source before starting a new workout. An age estimate can differ from your actual maximum.
+- **Next session:** if HR in the last 2 min of the intervals stayed below the zone, the suggested next interval target goes up (speed, incline or both, by your preference); above the zone, it goes down. Every workout offers **Use for next workout** and **Keep current plan**. Only accepting changes the saved plan. No recommendation is made with an unset HRmax.
 - **Settings → Your data:** full JSON backup (export and import; import adds missing workouts and restores settings), CSV of all sessions. Each workout can also be exported as per-second CSV or TCX.
 
 ## How a workout behaves
@@ -138,6 +140,7 @@ When you add a new file, also add it to the `ASSETS` list in `sw.js` and bump `V
 - **Start workout** opens a full-screen **Ready** screen after choosing the HR source or connecting the strap. Check your live HR, strap status and the first phase's treadmill target, then tap **Start** for a 5–4–3–2–1 countdown. It always takes five real seconds, even at 10× workout speed. No workout time or samples are recorded until it ends. **Cancel** returns home, including during the countdown. Missing HR (over 5 s) and no skin contact show warnings without blocking Start. Leaving the app during the countdown resets it and requires another Start tap.
 - At the start of each phase Fjord assumes you set the treadmill to the target, and logs that. Use **+ / −** to log what you really set; hold a button to repeat.
 - A change you make during a phase carries over: if you go to 11.0 km/h in interval 1, interval 2 starts with 11.0 km/h as its target. Recovery, warm-up and cool-down keep their own targets.
+- **Live suggestions:** optional text cards use 5 s smoothed HR and its trend. A deviation must persist for 20 s, beyond a 1 percentage-point margin around the zone. No increase is suggested in the first 90 s of an interval, or during recovery/cool-down; a trend already heading into the zone waits. Suggestions stop while paused, disconnected, missing HR, without skin contact, or in the last 30 s of a phase. One change uses your chosen step capped at 0.5 km/h or 0.5 percentage points of incline. Set the treadmill manually, then tap **Accept** to record the change; **Skip** leaves the logged settings alone. Either choice, or a manual adjustment, leaves at least 60 workout seconds for HR to respond. **Both** alternates the two controls. Pending suggestions are rechecked on acceptance and are never restored after a reload.
 - **Skip** needs a second tap within 2.5 s. **End** asks for confirmation.
 - The background shows the zone (blue below, green in, red above) and the same state is written under the heart rate. The zone is shown in beats (e.g. 162–180 bpm) and in % HRmax.
 - On screens that are tall enough, a small chart shows the last 3 minutes of heart rate against the zone band.

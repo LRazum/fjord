@@ -1,7 +1,7 @@
 // App entry point: wires settings, screens, storage, the workout session and the HR source.
 
 import { t, setLang } from './i18n.js';
-import { loadSettings, saveSettings, clone } from './settings.js';
+import { loadSettings, saveSettings, clone, hasMaxHr, updateHeartRateSettings } from './settings.js';
 import { buildPlan } from './workout.js';
 import { WorkoutSession } from './session.js';
 import { ReadySession } from './ready.js';
@@ -66,7 +66,7 @@ function setupStrap() {
     app.liveBpm = m.bpm;
     app.liveHrAt = Date.now();
     if (app.ready && !app.ready.sim) app.ready.pushHr(m.bpm, m.rr);
-    if (app.session && !app.session.sim) app.session.pushHr(m.bpm, m.rr);
+    if (app.session && !app.session.sim) app.session.pushHr(m.bpm, m.rr, m.contact);
     const el = document.querySelector('[data-live-bpm]');
     if (el) el.textContent = m.bpm;
   });
@@ -76,6 +76,7 @@ function setupStrap() {
   });
   strap.on('state', ({ state }) => {
     if (state !== 'connected') app.liveBpm = null;
+    if (app.session && !app.session.sim) app.session.setStrapStatus(state === 'connected', strap.contact);
     refreshStrapCard();
   });
   strap.on('disconnect', () => {
@@ -120,6 +121,7 @@ function showHome() {
 
 async function startWorkout() {
   if (app.ready || app.session) return;
+  if (!hasMaxHr(app.settings)) return showSettings();
   // Start these inside the tap: the screen-on video and Bluetooth need a user gesture.
   const screenOn = keepScreenOn();
   let sim = useSimulator();
@@ -168,7 +170,7 @@ function showReady(settings, plan, sim, screenOn) {
     view.destroy();
     app.ready = null;
   };
-  const view = new ReadyView(screens.ready, ready, plan, strap, {
+  const view = new ReadyView(screens.ready, ready, plan, strap, settings, {
     start: () => ready.startCountdown(),
     cancel() {
       cleanup();
@@ -183,7 +185,7 @@ function showReady(settings, plan, sim, screenOn) {
     session = new WorkoutSession({ settings, plan, sim, timeScale: settings.dev.timeScale });
     if (strap) {
       if (strap.battery != null) session.setBattery(strap.battery);
-      if (strap.state === 'connected' && bpm != null) session.pushHr(bpm, ready.lastRr);
+      if (strap.state === 'connected' && bpm != null) session.pushHr(bpm, ready.lastRr, strap.contact);
     }
     runSession(session);
     session.start();
@@ -198,6 +200,7 @@ function showReady(settings, plan, sim, screenOn) {
 function runSession(session) {
   app.session = session;
   const strap = session.sim ? null : app.strap;
+  if (!session.sim) session.setStrapStatus(!!strap && strap.state === 'connected', strap ? strap.contact : null);
   app.view = new WorkoutView(
     screens.workout,
     session,
@@ -281,16 +284,8 @@ function applyRecommendation(r) {
 
 function showSummary(rec) {
   const r = recommendNext(rec);
-  // Real workouts update the plan automatically (including keeping what was actually
-  // run); simulated ones only when asked.
-  let applied = false;
-  if (rec.source !== 'sim' && r.action !== 'none') {
-    applyRecommendation(r);
-    applied = true;
-  }
   renderSummary(screens.summary, rec, {
     recommendation: r,
-    applied,
     onApply: () => applyRecommendation(r),
     async onDone(updated) {
       await saveRecord(updated);
@@ -353,8 +348,8 @@ function showSettings() {
     storage: app.storage,
     onBack: showHome,
     onChange(path, value) {
-      setPath(app.settings, path, value);
-      if (path === 'maxHr') app.settings.maxHrSource = 'known';
+      if (path === 'coachingEnabled') value = value === 'true';
+      if (!updateHeartRateSettings(app.settings, path, value)) setPath(app.settings, path, value);
       // Keep every zone low ≤ high.
       const m = /^zones\.(\w+)\.(0|1)$/.exec(path);
       if (m) {

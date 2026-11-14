@@ -1,7 +1,7 @@
 import { t, LANGUAGES, getLang } from '../i18n.js';
 import { esc } from './dom.js';
 import { bindForm, setPath } from './form.js';
-import { estimateMaxHr } from '../settings.js';
+import { hasMaxHr, updateHeartRateSettings } from '../settings.js';
 import { heartRateFields, strapFields, treadmillFields, adjustFields } from './settings-view.js';
 
 const STEPS = ['welcome', 'strap', 'heart', 'treadmill', 'adjust'];
@@ -50,19 +50,14 @@ export function renderOnboarding(root, draft, ctx, step = 0) {
       <section class="onb-body">${body}</section>
       <div class="sticky-start btn-row">
         ${step > 0 ? `<button class="btn btn-xl" data-action="prev">${esc(t('onb.back'))}</button>` : ''}
-        <button class="btn btn-primary btn-xl" data-action="next">${esc(last ? t('onb.finish') : t('onb.next'))}</button>
+        <button class="btn btn-primary btn-xl" data-action="next" ${name === 'heart' && !hasMaxHr(draft) ? 'disabled' : ''}>${esc(last ? t('onb.finish') : t('onb.next'))}</button>
       </div>
     </div>`;
 
   bindForm(root, (path, value) => {
-    setPath(draft, path, value);
-    if (path === 'maxHr') draft.maxHrSource = 'known';
-    if (path === 'age' && draft.maxHrSource !== 'known') {
-      draft.maxHr = estimateMaxHr(value);
-      draft.maxHrSource = 'age';
-      renderOnboarding(root, draft, ctx, step);
-    }
-    if (path === 'strapModel') renderOnboarding(root, draft, ctx, step);
+    if (path === 'coachingEnabled') value = value === 'true';
+    if (!updateHeartRateSettings(draft, path, value)) setPath(draft, path, value);
+    if (['age', 'maxHr', 'maxHrSource', 'strapModel'].includes(path)) renderOnboarding(root, draft, ctx, step);
   });
 
   root.onclick = (e) => {
@@ -73,14 +68,11 @@ export function renderOnboarding(root, draft, ctx, step = 0) {
       draft.lang = b.dataset.value;
       ctx.onLang(draft.lang);
       renderOnboarding(root, draft, ctx, step);
-    } else if (a === 'use-estimate' && draft.age) {
-      draft.maxHr = estimateMaxHr(draft.age);
-      draft.maxHrSource = 'age';
-      renderOnboarding(root, draft, ctx, step);
     } else if (a === 'prev') {
       renderOnboarding(root, draft, ctx, step - 1);
       window.scrollTo(0, 0);
     } else if (a === 'next') {
+      if (name === 'heart' && !hasMaxHr(draft)) return;
       if (last) ctx.onFinish(draft);
       else {
         renderOnboarding(root, draft, ctx, step + 1);

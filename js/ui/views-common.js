@@ -3,6 +3,11 @@
 import { t } from '../i18n.js';
 import { fmtNum } from '../format.js';
 import { esc, listen } from './dom.js';
+import { hasMaxHr } from '../settings.js';
+
+export function maxHrText(s) {
+  return hasMaxHr(s) ? t(s.maxHrSource === 'age' ? 'hr.estimated' : 'hr.known', { bpm: s.maxHr }) : t('hr.unsetShort');
+}
 
 export const tile = (label, value, sub = '') =>
   `<div class="tile"><div class="tile-label">${esc(label)}</div><div class="tile-value">${esc(value)}</div>${
@@ -33,7 +38,7 @@ export function recommendationText(r) {
   if (r.action === 'harder') return t('rec.harder', { pct, next });
   if (r.action === 'easier') return t('rec.easier', { pct, next });
   if (r.action === 'keep') return t('rec.keep', { pct, next });
-  return t('rec.none');
+  return t(r.reason === 'maxHr' ? 'rec.needMaxHr' : 'rec.none');
 }
 
 export function rpeButtons(value) {

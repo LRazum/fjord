@@ -1,6 +1,7 @@
 // Workout statistics, progress over weeks and next-session recommendations. DOM-free.
 
 import { smoothedHr, zoneStatus } from './hrmath.js';
+import { hasMaxHr } from './settings.js';
 
 const LAST_SEC = 120; // "last 2 min" of an interval
 const HRR_SEC = 60; // heart-rate recovery after 1 min
@@ -168,6 +169,7 @@ export function recommendNext(rec, stats = workoutStats(rec)) {
   const zone = s.zones.interval;
   const counted = stats.intervals.filter((p) => p.counts && p.last2Pct != null);
   const base = { ...((rec.finalTargets && rec.finalTargets.interval) || s.treadmill.interval) };
+  if (!hasMaxHr(s)) return { action: 'none', reason: 'maxHr', base, next: base, pct: null };
   if (counted.length < 2) return { action: 'none', reason: 'tooShort', base, next: base, pct: null };
 
   const pct = r1(mean(counted.map((p) => p.last2Pct)));
