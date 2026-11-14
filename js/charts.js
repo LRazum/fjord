@@ -4,20 +4,22 @@
 const r1 = (v) => Math.round(v * 10) / 10;
 
 /**
- * Live heart-rate strip: the last `windowSec` seconds ending at `endSec`, anchored to
- * the right edge, with the target zone of each phase drawn as a band behind the line.
+ * Live heart-rate strip ending at `endSec`, anchored to the right edge. Its window
+ * grows from 30 seconds to `windowSec`, so early readings do not sit in a tiny sliver.
+ * The target zone of each phase is drawn as a band behind the line.
  *
  * @param {object} o
  * @param {(number|null)[]} o.samples  bpm per workout second (null = no reading)
  * @param {number} o.endSec            newest second to draw
  * @param {{startSec:number, endSec:number, zone:[number, number]}[]} o.phases
  * @param {number} o.maxHr
- * @returns {{ d: string, bands: {x:number, y:number, w:number, h:number}[], lo: number, hi: number }}
+ * @returns {{ d: string, bands: {x:number, y:number, w:number, h:number}[], lo: number, hi: number, windowSec: number }}
  *          `d` is an SVG path (gaps in the data start a new sub-path); lo/hi are the
  *          % HRmax values at the bottom and top edge.
  */
 export function liveChartGeometry({ samples, endSec, phases, maxHr, windowSec = 180, width = 180, height = 60 }) {
-  const from = endSec - windowSec;
+  const span = Math.min(windowSec, Math.max(30, endSec));
+  const from = endSec - span;
   const first = Math.max(0, from);
   const pct = (bpm) => (bpm / maxHr) * 100;
 
@@ -50,7 +52,7 @@ export function liveChartGeometry({ samples, endSec, phases, maxHr, windowSec = 
     hi = mid + 10;
   }
 
-  const x = (t) => ((t - from) / windowSec) * width;
+  const x = (t) => ((t - from) / span) * width;
   const y = (p) => height - ((p - lo) / (hi - lo)) * height;
 
   const bands = visible
@@ -74,7 +76,7 @@ export function liveChartGeometry({ samples, endSec, phases, maxHr, windowSec = 
     pen = true;
   }
 
-  return { d, bands, lo, hi };
+  return { d, bands, lo, hi, windowSec: span };
 }
 
 /** Round, human-friendly tick values covering [lo, hi]. */

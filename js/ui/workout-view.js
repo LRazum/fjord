@@ -84,10 +84,13 @@ export class WorkoutView {
           <span class="wo-zone"><span data-f="zoneText"></span> <span class="wo-zone-pct" data-f="zonePct"></span></span>
         </div>
         <div class="wo-cue" data-f="cue" aria-live="polite"></div>
-        <svg class="wo-chart" viewBox="0 0 180 60" preserveAspectRatio="none" aria-hidden="true">
-          <g data-f="chartBands"></g>
-          <path data-f="chartLine" fill="none" vector-effect="non-scaling-stroke"></path>
-        </svg>
+        <div class="wo-chart" aria-hidden="true">
+          <svg viewBox="0 0 180 60" preserveAspectRatio="none">
+            <g data-f="chartBands"></g>
+            <path data-f="chartLine" fill="none" vector-effect="non-scaling-stroke"></path>
+          </svg>
+          <span class="wo-chart-window" data-f="chartWindow"></span>
+        </div>
         <div class="wo-paused" data-f="paused" hidden>${esc(t('wo.paused'))}</div>
       </main>
 
@@ -278,7 +281,7 @@ export class WorkoutView {
     f.coachSkip.dataset.id = p.id;
   }
 
-  // Last three minutes of heart rate against the zone; redrawn once per workout second.
+  // The strip expands up to three minutes; redraw once per workout second.
   _updateChart(s) {
     const sec = Math.floor(s.elapsedSec);
     const key = `${sec}:${s.phaseIndex}`;
@@ -291,6 +294,7 @@ export class WorkoutView {
       maxHr: this.session.settings.maxHr,
     });
     this.f.chartLine.setAttribute('d', g.d);
+    setText(this.f.chartWindow, t('wo.chartWindow', { sec: g.windowSec }));
     const bands = g.bands.map((b) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"></rect>`).join('');
     if (bands !== this._chartBands) {
       this._chartBands = bands;

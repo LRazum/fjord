@@ -26,7 +26,7 @@ test('liveChartGeometry: newest sample sits on the right edge', () => {
   assert.equal(pts[pts.length - 1][0], 180);
 });
 
-test('liveChartGeometry: a short workout is anchored to the right', () => {
+test('liveChartGeometry: the first half-minute uses the available chart width', () => {
   const samples = Array.from({ length: 31 }, (_, i) => 100 + i);
   const g = liveChartGeometry({
     samples,
@@ -36,11 +36,40 @@ test('liveChartGeometry: a short workout is anchored to the right', () => {
   });
   const pts = subPaths(g.d)[0];
   assert.equal(pts.length, 31);
-  assert.equal(pts[0][0], 150);
+  assert.equal(pts[0][0], 0);
   assert.equal(pts[30][0], 180);
-  assert.deepEqual({ x: g.bands[0].x, w: g.bands[0].w }, { x: 150, w: 30 });
+  assert.deepEqual({ x: g.bands[0].x, w: g.bands[0].w }, { x: 0, w: 180 });
+  assert.equal(g.windowSec, 30);
   // Rising heart rate goes up the screen (smaller y).
   assert.ok(pts[30][1] < pts[0][1]);
+});
+
+test('liveChartGeometry: the first seconds use a 30-second window, with newest HR on the right', () => {
+  const g = liveChartGeometry({ samples: new Array(11).fill(120), endSec: 10,
+    phases: [{ startSec: 0, endSec: 10, zone: [60, 75] }], maxHr: MAX });
+  const pts = subPaths(g.d)[0];
+  assert.equal(g.windowSec, 30);
+  assert.equal(pts[0][0], 120);
+  assert.equal(pts[pts.length - 1][0], 180);
+  assert.deepEqual([g.bands[0].x, g.bands[0].w], [120, 60]);
+});
+
+test('liveChartGeometry: the window grows with the workout and stops at three minutes', () => {
+  for (const sec of [60, 120, 180, 300]) {
+    const g = liveChartGeometry({ samples: new Array(sec + 1).fill(150), endSec: sec,
+      phases: [{ startSec: 0, endSec: sec, zone: [60, 75] }], maxHr: MAX });
+    const pts = subPaths(g.d)[0];
+    assert.equal(g.windowSec, Math.min(180, sec));
+    assert.equal(pts.length, g.windowSec + 1);
+    assert.equal(pts[0][0], 0);
+    assert.equal(pts[pts.length - 1][0], 180);
+  }
+});
+
+test('liveChartGeometry: early phase changes keep their zone bands aligned', () => {
+  const g = liveChartGeometry({ samples: new Array(61).fill(150), endSec: 60, maxHr: MAX,
+    phases: [{ startSec: 0, endSec: 30, zone: [60, 75] }, { startSec: 30, endSec: 60, zone: [85, 95] }] });
+  assert.deepEqual(g.bands.map((b) => [b.x, b.w]), [[0, 90], [90, 90]]);
 });
 
 test('liveChartGeometry: everything stays inside the box', () => {
