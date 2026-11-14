@@ -2,7 +2,7 @@
 // timeout, falling back to the cache so the app works offline after the first load.
 // Bump VERSION when you change the asset list.
 
-const VERSION = 'fjord-v4';
+const VERSION = 'fjord-v5';
 const NETWORK_TIMEOUT_MS = 3000;
 
 const ASSETS = [
@@ -26,10 +26,24 @@ const ASSETS = [
   './js/wakelock.js',
   './js/charts.js',
   './js/export.js',
+  './js/hrparse.js',
+  './js/ble.js',
+  './js/stats.js',
+  './js/backup.js',
+  './js/storage.js',
+  './js/straps.js',
   './media/keepawake.mp4',
   './js/ui/dom.js',
   './js/ui/modal.js',
   './js/ui/download.js',
+  './js/ui/form.js',
+  './js/ui/chart-svg.js',
+  './js/ui/views-common.js',
+  './js/ui/history.js',
+  './js/ui/detail.js',
+  './js/ui/progress.js',
+  './js/ui/settings-view.js',
+  './js/ui/onboarding.js',
   './js/ui/home.js',
   './js/ui/workout-view.js',
   './js/ui/summary.js',

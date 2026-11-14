@@ -12,10 +12,12 @@ Norwegian 4×4 interval training on a treadmill, guided by live heart rate from 
 | Milestone | Contents | State |
 |---|---|---|
 | 1 | Skeleton, workout state machine, HR simulator, workout screen, offline shell | ✅ |
-| 2 | Bluetooth strap connection and parsing | — |
-| 3 | Coaching, voice and sounds | — |
-| 4 | Storage, history, statistics, charts | — |
-| 5 | Onboarding, settings, export/import, polish | — |
+| 2 | Bluetooth strap: connection, HR measurement parsing, battery, auto-reconnect | ✅ |
+| 3 | Coaching cues, voice and sounds | dropped for now |
+| 4 | Storage (IndexedDB), crash recovery, history, workout detail, progress, statistics | ✅ |
+| 5 | Onboarding, settings, backup export/import, CSV, TCX | ✅ |
+
+Not yet tested on a real strap: the Bluetooth code is covered by unit tests with a fake device and by an in-browser test with a fake `navigator.bluetooth`.
 
 ## Run locally on Linux
 
@@ -32,17 +34,12 @@ Firefox notes:
 
 - **Firefox has no Web Bluetooth.** Fjord detects this, hides the strap connection and uses the simulator. Real strap testing happens on the iPhone (see below).
 - **Developer options** (*Developer*) are at the bottom of the home screen. *Time speed 10×* runs the workout clock 10× faster, so a whole 40-minute session takes 4 minutes. *Simulated runner* chooses whether the planned treadmill settings are too easy, a good fit, too hard or random for the simulated runner.
-- **Speech** (milestone 3): Firefox on Linux gets its voices from `speech-dispatcher`. If no voices are installed, Fjord falls back to beeps only. To get voices:
-  ```bash
-  sudo apt install speech-dispatcher espeak-ng
-  ```
-  Then restart Firefox.
 - The service worker is network-first, so a normal reload always picks up your edits. If something looks stale, use Ctrl+Shift+R.
-- Private windows don't get a service worker. In milestone 4 they won't get persistent storage either.
+- Private windows don't get a service worker, and may not keep workouts after the window closes (Fjord warns when it cannot store data).
 
 ## Tests
 
-The pure modules (`workout.js`, `session.js`, `hrmath.js`, `simulator.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
+The pure modules (`workout.js`, `session.js`, `hrmath.js`, `hrparse.js`, `ble.js`, `simulator.js`, `stats.js`, `backup.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
 
 ```bash
 sudo apt install nodejs
@@ -73,14 +70,14 @@ The free plan publishes Pages only from public repositories. That's fine here be
 ## Test on iPhone with Bluefy
 
 1. Install **Bluefy – Web BLE Browser** from the App Store.
-2. Open `https://<user>.github.io/fjord/` in Bluefy. Allow Bluetooth access when iOS asks (from milestone 2).
+2. Open `https://<user>.github.io/fjord/` in Bluefy. Allow Bluetooth access when iOS asks.
 3. **Full screen:** tap the Bluefy menu (the ⋯ / settings button in the toolbar) and turn on **Fullscreen** / *Hide toolbar*. Fjord respects the notch and home-indicator safe areas. To get back out, use the small floating Bluefy button.
 4. Bookmark the page in Bluefy so you can find it again quickly.
 5. After the first load the app works offline: the service worker caches it.
 6. **Getting updates:** after you push, wait for Pages to deploy (about 1 minute), then pull to refresh or reload in Bluefy. The network-first service worker serves the new version as soon as the network answers.
 7. If the screen still turns off during a workout (Fjord shows a warning when neither Wake Lock nor the silent-video fallback works), set *Settings → Display & Brightness → Auto-Lock → Never* on the iPhone for the session.
 
-> ⚠️ Workouts are stored in Bluefy's browser storage (from milestone 4). Deleting Bluefy, or clearing its website data, deletes your history. Use **Export backup** regularly.
+> ⚠️ Workouts are stored in Bluefy's browser storage. Deleting Bluefy, or clearing its website data, deletes your history. Use **Export backup** regularly.
 
 ## Project layout
 
@@ -101,14 +98,39 @@ js/
   hrmath.js         smoothing, trend, zone hysteresis (pure, no DOM)
   format.js         time/number formatting
   wakelock.js       keeps the screen on (Wake Lock, silent-video fallback)
+  ble.js            strap connection, reconnects (no DOM)
+  hrparse.js        Heart Rate Measurement (0x2A37) parser (pure)
+  storage.js        IndexedDB: workouts + in-progress snapshot
+  stats.js          per-workout stats, weekly progress, recommendations (pure)
+  backup.js         CSV export, JSON backup/restore (pure)
+  straps.js         tested strap models and tips
   charts.js         chart geometry (pure, no DOM)
   export.js         TCX export (pure, no DOM)
-  ui/               screens: home, workout, summary, modal, DOM helpers
+  ui/               screens: onboarding, home, workout, summary, history, detail,
+                    progress, settings; forms, charts, dialogs
 tests/              node:test unit tests for the pure modules
 package.json        only there so `npm test` works; no dependencies
 ```
 
 When you add a new file, also add it to the `ASSETS` list in `sw.js` and bump `VERSION` there.
+
+## Strap connection
+
+- **Connect strap** on the home screen opens the browser's device picker, filtered to devices that offer the standard Heart Rate Service, so any standard strap works.
+- Battery level is shown when the strap reports it.
+- If the link drops during a workout, the timer keeps running, a red banner appears (the phone also vibrates where supported), and Fjord retries automatically (after 1, 2, 4, 8, then every 15 s). **Reconnect** in the banner retries at once.
+- A "no skin contact" warning appears when the strap reports it.
+- Most straps accept one Bluetooth connection at a time: disconnect it from your watch and other apps first. The Polar H10 accepts two.
+
+## Data, history and statistics
+
+- Every workout is stored in IndexedDB in the browser: heart rate at 1 Hz, phases, every logged treadmill change, RPE and a note.
+- The running workout is saved every 5 s and on every change. After a reload or crash, Fjord offers to **resume** it (paused at the same point), **save** it as it is, or discard it.
+- Workouts shorter than one minute are not saved.
+- **Workout detail:** HR chart with zone bands and phase markers; per interval avg/max HR, time in zone, time to reach the zone, avg speed/incline, % HRmax over the last 2 min; per phase avg/min/max HR and the HR drop 1 min after each interval.
+- **Progress:** per week, speed at 90 % HRmax (flat-equivalent speed from the last 2 min of each interval, scaled to 90 % HRmax: going up means getting fitter), interval HR, time in zone, speed and incline; total workouts, week streaks.
+- **Next session:** if HR in the last 2 min of the intervals stayed below the zone, the next interval target goes up (speed, incline or both, by your preference); above the zone, it goes down. For real-strap workouts this is applied to the plan automatically; for simulated ones there is a button.
+- **Settings → Your data:** full JSON backup (export and import; import adds missing workouts and restores settings), CSV of all sessions. Each workout can also be exported as per-second CSV or TCX.
 
 ## How a workout behaves
 

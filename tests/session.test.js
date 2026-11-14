@@ -162,3 +162,46 @@ test('session: ending early produces a usable record', () => {
   assert.equal(rec.phases[rec.phases.length - 1].end, 'ended');
   assert.ok(rec.startedAt && rec.endedAt);
 });
+
+test('session: snapshot → restore continues exactly where it stopped, paused', () => {
+  const { session, step, clock } = make();
+  step(700000); // interval 1, 100 s in
+  session.adjust('speed', 0.5);
+  step(3000);
+  const snap = JSON.parse(JSON.stringify(session.toSnapshot()));
+  const settings = snap.settings;
+  const sim = new HrSimulator({ maxHr: settings.maxHr, reference: settings.treadmill.interval });
+  const again = new WorkoutSession({ settings, plan: snap.plan, sim, now: () => clock.t, restore: snap });
+  assert.equal(again.id, session.id);
+  assert.equal(again.state, 'paused');
+  assert.equal(again.snapshot().elapsedSec, 703);
+  assert.equal(again.snapshot().phase.type, 'interval');
+  assert.deepEqual(again.actual, { speed: 11, incline: 2 });
+  assert.equal(again.samples.length, 704);
+  assert.ok(Math.abs(sim.hr - again.samples[703]) < 1e-9); // simulator picks up from the last value
+  // Carry-over still works after the restore.
+  again.attach();
+  again.dispose();
+  again.resume();
+  for (let i = 0; i < 140 + 180; i++) {
+    clock.t += 1000;
+    again.tick();
+  }
+  const s = again.snapshot();
+  assert.equal(s.phase.index, 2);
+  assert.deepEqual(s.target, { speed: 11, incline: 2 });
+  assert.equal(again.samples.length, 704 + 320);
+});
+
+test('session: recordFromSnapshot ends the workout at the last save', () => {
+  const { session, step } = make();
+  step(650000);
+  const snap = JSON.parse(JSON.stringify(session.toSnapshot()));
+  const rec = WorkoutSession.recordFromSnapshot(snap);
+  assert.equal(rec.finishReason, 'ended');
+  assert.equal(rec.durationSec, 650);
+  assert.equal(rec.endedAt, snap.savedAt);
+  assert.equal(rec.source, 'sim');
+  assert.equal(rec.phases[rec.phases.length - 1].end, 'ended');
+  assert.equal(rec.samples.length, 651);
+});

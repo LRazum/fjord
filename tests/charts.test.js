@@ -103,3 +103,52 @@ test('liveChartGeometry: no data yet still gives a usable scale', () => {
   assert.deepEqual(g.bands, []);
   assert.ok(g.hi > g.lo);
 });
+
+import { niceTicks, workoutChartGeometry, trendChartGeometry } from '../js/charts.js';
+import { workoutStats } from '../js/stats.js';
+import { makeRecord } from './helpers.js';
+
+test('niceTicks: round steps that cover the range', () => {
+  assert.deepEqual(niceTicks(113, 187, 4), { ticks: [100, 120, 140, 160, 180, 200], step: 20, min: 100, max: 200 });
+  assert.deepEqual(niceTicks(0, 100, 4).ticks, [0, 25, 50, 75, 100]);
+  const t = niceTicks(9.6, 11.2, 3);
+  assert.ok(t.min <= 9.6 && t.max >= 11.2);
+  assert.ok(t.ticks.every((v) => Math.abs(v * 10 - Math.round(v * 10)) < 1e-9));
+  const flat = niceTicks(5, 5);
+  assert.ok(flat.max > flat.min);
+});
+
+test('workoutChartGeometry: bands and markers per phase, line inside the plot', () => {
+  const rec = makeRecord({ hr: (p, k) => (p.type === 'interval' ? 150 + k / 4 : 120) });
+  const g = workoutChartGeometry(rec, workoutStats(rec).phases);
+  assert.equal(g.bands.length, 5);
+  assert.equal(g.markers.length, 4);
+  assert.equal(g.bands[0].x, g.plot.left);
+  const right = g.plot.left + g.plot.width;
+  assert.ok(Math.abs(g.bands[4].x + g.bands[4].w - right) < 0.2);
+  for (const [x, y] of subPaths(g.d).flat()) {
+    assert.ok(x >= g.plot.left - 0.1 && x <= right + 0.1);
+    assert.ok(y >= g.plot.top - 0.1 && y <= g.plot.top + g.plot.height + 0.1);
+  }
+  assert.equal(g.xTicks[0].label, '0');
+  assert.equal(g.secAt(g.plot.left), 0);
+  assert.equal(g.secAt(right), rec.durationSec);
+  assert.equal(g.secAt(g.xOf(300)), 300);
+});
+
+test('trendChartGeometry: spacing by real weeks, gaps break the line', () => {
+  const g = trendChartGeometry([
+    { week: '2026-10-05', v: 10 },
+    { week: '2026-10-12', v: 10.5 },
+    { week: '2026-10-19', v: null },
+    { week: '2026-11-02', v: 11 },
+  ]);
+  assert.equal(g.dots.length, 3);
+  assert.equal(subPaths(g.d).length, 2);
+  const [a, b, c] = g.dots.map((d) => d.x);
+  assert.ok(Math.abs(c - b - 3 * (b - a)) < 0.3); // 3 weeks vs 1 week
+  assert.ok(g.dots[2].y < g.dots[0].y); // higher value drawn higher
+  assert.equal(trendChartGeometry([{ week: '2026-10-05', v: null }]).empty, true);
+  const one = trendChartGeometry([{ week: '2026-10-05', v: 9 }]);
+  assert.equal(one.dots.length, 1);
+});

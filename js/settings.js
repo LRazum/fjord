@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
   restHr: null,
 
   strapModel: 'other',
+  hrSource: 'strap', // 'strap' | 'sim' (the simulator is always used without Web Bluetooth)
   adjustPref: 'speed', // 'speed' | 'incline' | 'both'
   speedStep: 0.5,
   inclineStep: 0.5,

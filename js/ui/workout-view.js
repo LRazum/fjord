@@ -13,12 +13,14 @@ export class WorkoutView {
   /**
    * @param {HTMLElement} root
    * @param {import('../session.js').WorkoutSession} session
-   * @param {{ requestEnd: () => void }} on
+   * @param {{ requestEnd: () => void, reconnect?: () => void }} on
+   * @param {import('../ble.js').StrapConnection|null} strap  null for the simulator
    */
-  constructor(root, session, on) {
+  constructor(root, session, on, strap = null) {
     this.root = root;
     this.session = session;
     this.on = on;
+    this.strap = strap;
     this._unsubs = [];
     this._holdTimer = null;
     this._skipTimer = null;
@@ -28,6 +30,11 @@ export class WorkoutView {
     this._render();
     this._bind();
     this._unsubs.push(session.on('tick', (s) => this.update(s)));
+    if (strap) {
+      const refresh = () => this._updateStrap();
+      this._unsubs.push(strap.on('state', refresh), strap.on('hr', refresh));
+      this._updateStrap();
+    }
     this.update(session.snapshot());
   }
 
@@ -48,6 +55,10 @@ export class WorkoutView {
 
     this.root.innerHTML = `
       <div class="wo-progress"><div data-f="progress"></div></div>
+      <div class="wo-alert" data-f="alert" role="alert" hidden>
+        <span class="wo-alert-text" data-f="alertText"></span>
+        <button class="btn wo-alert-btn" data-action="reconnect" data-f="alertBtn"></button>
+      </div>
       <header class="wo-top">
         <div class="wo-phase">
           <span class="wo-phase-name" data-f="phaseName"></span>
@@ -133,6 +144,7 @@ export class WorkoutView {
       if (a === 'pause') this.session.togglePause();
       else if (a === 'skip') this._skip(b);
       else if (a === 'end') this.on.requestEnd();
+      else if (a === 'reconnect' && this.on.reconnect) this.on.reconnect();
     };
   }
 
@@ -155,7 +167,31 @@ export class WorkoutView {
     }, SKIP_ARM_MS);
   }
 
-  /** Show a coaching line (used from milestone 3). */
+  // Strap problems are shown as a banner over the top of the screen; the timer keeps going.
+  _updateStrap() {
+    const st = this.strap;
+    const f = this.f;
+    let text = '';
+    let btn = '';
+    if (st.state === 'reconnecting') {
+      text = t('wo.strapLost');
+      btn = t('wo.reconnect');
+    } else if (st.state === 'connecting') {
+      text = t('strap.connecting');
+    } else if (st.state === 'idle') {
+      text = t('wo.strapNone');
+      btn = t('home.connect');
+    } else if (st.contact === false) {
+      text = t('strap.noContact');
+    }
+    f.alert.hidden = !text;
+    setText(f.alertText, text);
+    f.alertBtn.hidden = !btn;
+    setText(f.alertBtn, btn);
+    this.root.classList.toggle('strap-lost', st.state === 'reconnecting' || st.state === 'idle');
+  }
+
+  /** Show a coaching line (unused for now). */
   setCue(text, kind = '') {
     this._cue = text || '';
     this.f.cue.dataset.kind = this._cue ? kind : '';

@@ -6,6 +6,18 @@ export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
 
+/**
+ * addEventListener that replaces the listener previously registered under `key`, so
+ * screens can re-render into the same root without stacking handlers.
+ */
+export function listen(root, key, type, fn) {
+  const store = (root.__fjordListeners = root.__fjordListeners || {});
+  const id = key + ':' + type;
+  if (store[id]) root.removeEventListener(type, store[id]);
+  store[id] = fn;
+  root.addEventListener(type, fn);
+}
+
 /** Set textContent only when it changed (avoids layout work on every tick). */
 export function setText(el, text) {
   const s = String(text);
@@ -19,7 +31,7 @@ export function fields(root) {
   return out;
 }
 
-const SCREENS = ['home', 'workout', 'summary'];
+const SCREENS = ['home', 'workout', 'summary', 'history', 'detail', 'progress', 'settings', 'onboarding'];
 
 export function showScreen(name) {
   for (const id of SCREENS) {

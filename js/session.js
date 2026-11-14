@@ -27,7 +27,12 @@ function newId(now) {
  *         'state' {state}, 'finish' {reason}, 'hr' {bpm}, 'treadmill' {actual}.
  */
 export class WorkoutSession extends Emitter {
-  constructor({ settings, plan, sim = null, timeScale = 1, now = Date.now }) {
+  /**
+   * @param {object} o
+   * @param {object} [o.restore]  a toSnapshot() result to continue from (crash recovery);
+   *                              the session then starts paused and needs attach().
+   */
+  constructor({ settings, plan, sim = null, timeScale = 1, now = Date.now, restore = null }) {
     super();
     this.settings = clone(settings);
     this.plan = plan;
@@ -62,6 +67,30 @@ export class WorkoutSession extends Emitter {
     this._lastTick = 0;
     this._simAccMs = 0;
 
+    if (restore) this._restore(restore);
+    this._bindEngine();
+  }
+
+  _restore(snap) {
+    this.id = snap.id;
+    this.startedAt = snap.startedAt;
+    this.engine = WorkoutEngine.restore(this.plan, snap.engine);
+    this.samples = snap.samples.slice();
+    this.treadmillLog = snap.treadmillLog.map((x) => ({ ...x }));
+    this.actual = { ...snap.actual };
+    this.targets = clone(snap.targets);
+    this._adjustedInPhase = !!snap.adjustedInPhase;
+    const sec = this.samples.length - 1;
+    this.smooth = smoothedHr(this.samples, sec, 5);
+    this.trend = hrTrend(this.samples, sec, 18);
+    if (this.sim) {
+      const last = [...this.samples].reverse().find((v) => v != null);
+      if (last) this.sim.hr = last;
+    }
+  }
+
+  _bindEngine() {
+    const plan = this.plan;
     this.engine.on('phase', (e) => {
       const prev = plan.phases[e.prevIndex];
       if (prev && this._adjustedInPhase) this.targets[prev.type] = { ...this.actual };
@@ -84,6 +113,46 @@ export class WorkoutSession extends Emitter {
       this.emit('tick', this.snapshot());
       this.emit('finish', e);
     });
+  }
+
+  /** Start ticking a restored (paused) session. The user resumes it with resume(). */
+  attach() {
+    this._lastTick = this.now();
+    if (this.engine.state !== 'finished') this._startTimer();
+    this.emit('tick', this.snapshot());
+  }
+
+  /** Everything needed to continue this workout after a reload or crash. */
+  toSnapshot() {
+    return {
+      v: 1,
+      id: this.id,
+      startedAt: this.startedAt,
+      savedAt: new Date(this.now()).toISOString(),
+      settings: this.settings,
+      plan: this.plan,
+      timeScale: this.timeScale,
+      source: this.sim ? 'sim' : 'ble',
+      engine: this.engine.toJSON(),
+      samples: this.samples.slice(),
+      treadmillLog: this.treadmillLog.map((x) => ({ ...x })),
+      actual: { ...this.actual },
+      targets: clone(this.targets),
+      adjustedInPhase: this._adjustedInPhase,
+    };
+  }
+
+  /**
+   * The record of a crashed workout that the user chose to save without resuming.
+   * Ends it at the last saved moment.
+   */
+  static recordFromSnapshot(snap) {
+    const s = new WorkoutSession({ settings: snap.settings, plan: snap.plan, restore: snap, now: () => Date.parse(snap.savedAt) });
+    if (s.engine.state !== 'finished') s.engine.end();
+    const rec = s.toRecord();
+    rec.source = snap.source;
+    rec.endedAt = snap.savedAt;
+    return rec;
   }
 
   get state() {
