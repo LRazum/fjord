@@ -146,7 +146,7 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 | 4 | IndexedDB storage, crash recovery, history, detail, progress, stats, recommendations | done |
 | 5 | Onboarding, settings, JSON backup/import, CSV, TCX, live HR strip, zone in bpm, screen-on video fallback | done |
 
-160 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips. Session tests cover unticked pauses, precise End/Skip timestamps, natural phase/finish boundaries and timestamped HR catch-up without fabricated data.
+163 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips. Session tests cover unticked pauses, precise End/Skip timestamps, natural phase/finish boundaries and timestamped HR catch-up without fabricated data. The live strip grows from a labelled 30-second window to the last three minutes.
 
 ## Known gaps and open items
 
@@ -158,7 +158,6 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
   - The GitHub remote is `https://github.com/LRazum/fjord.git`. The user enabled GitHub Pages from `main`, `/ (root)`; the README describes the setup.
   - Do not push, create repositories or publish anything without the user's explicit approval.
 - **Small issues:**
-  - The live HR strip on the workout screen is mostly empty in the first minutes of a workout.
   - When the strap disconnects there is only a banner and vibration. Sounds were part of milestone 3.
 - **Ideas the user has not decided on:**
   - A touch lock during the workout.
