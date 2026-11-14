@@ -55,6 +55,7 @@ js/
   settings.js         DEFAULT_SETTINGS, load/save (localStorage 'fjord.settings'), mergeDeep, clone
   workout.js          buildPlan(settings) + WorkoutEngine state machine (pure)
   session.js          WorkoutSession: timer, 1 Hz HR samples, treadmill log, snapshots
+  ready.js            ReadySession: live HR preview and five real seconds of countdown (pure)
   simulator.js        HrSimulator (ACSM VO2 model, first-order HR lag, fatigue, drift, noise)
   hrmath.js           smoothedHr (5 s), hrTrend (18 s slope), zoneStatus (hysteresis), zoneBpm
   hrparse.js          parseHeartRateMeasurement(DataView) for characteristic 0x2A37
@@ -68,7 +69,7 @@ js/
   wakelock.js         Screen Wake Lock, falls back to the looping silent video (needs a user gesture)
   format.js           fmtClock, fmtNum (locale decimal), phaseName
   emitter.js          tiny event emitter
-  ui/                 screens: onboarding, home, workout-view, summary, history, detail,
+  ui/                 screens: onboarding, home, ready-view, workout-view, summary, history, detail,
                       progress, settings-view; plus form (steppers), chart-svg, modal,
                       download (share sheet / download), dom helpers, views-common
 tests/                node:test suites; helpers.js builds synthetic workout records
@@ -88,6 +89,8 @@ tests/                node:test suites; helpers.js builds synthetic workout reco
 - **Treadmill log:** `treadmillLog` holds `{t, speed, incline, src: 'plan'|'carry'|'user'}`. Rapid +/− taps within 4 s merge into one entry.
 - **Carry-over:** a user change in one phase carries to the next phase of the same type (`targets`, `finalTargets`).
 - **Snapshots:** `toSnapshot()` / `new WorkoutSession({restore})` / `attach()` handle crash recovery, and `toRecord()` gives the stored record.
+
+**ReadySession** precedes a new workout. It has no DOM or timers: the controller calls `tick()` with an injectable real-time clock. Its states are `ready → counting → finished` or `cancelled`. HR older than 5 s is missing; missing HR and no skin contact never block Start. The simulator previews a standing runner and is reused by the workout. Only after the countdown finishes does the controller create and start `WorkoutSession`. Cancel clears the preview timer and releases the screen lock. A hidden page resets an active countdown to `ready`.
 
 **Workout record** (stored in IndexedDB, exported in backups):
 `{ id, startedAt, endedAt, durationSec, finishReason, source:'sim'|'ble', timeScale, settings, plan, phases:[{i,type,index,startSec,endSec,plannedSec,end:'done'|'skipped'|'ended'}], samples, treadmillLog, finalTargets, rpe?, note?, strapName? }`.
@@ -137,7 +140,7 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 | 4 | IndexedDB storage, crash recovery, history, detail, progress, stats, recommendations | done |
 | 5 | Onboarding, settings, JSON backup/import, CSV, TCX, live HR strip, zone in bpm, screen-on video fallback | done |
 
-102 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`.
+121 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback.
 
 ## Known gaps and open items
 
@@ -146,13 +149,12 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
   - Whether the silent-video fallback actually keeps the iPhone screen on.
   - Whether Strava and Garmin accept the TCX files.
 - **Publishing:**
-  - The repository has **no GitHub remote yet**, so GitHub Pages is not set up. The README describes the steps.
+  - The GitHub remote is `https://github.com/LRazum/fjord.git`. GitHub Pages is not enabled yet; the README describes the steps.
   - Do not push, create repositories or publish anything without the user's explicit approval.
 - **Small issues:**
   - The live HR strip on the workout screen is mostly empty in the first minutes of a workout.
   - When the strap disconnects there is only a banner and vibration. Sounds were part of milestone 3.
 - **Ideas the user has not decided on:**
-  - A "ready" screen with a live HR check and a 5 s countdown.
   - A touch lock during the workout.
   - "+1 min" and "one more interval" buttons.
   - Coaching cues: they would reuse the engine `cue` events, `hrmath` trend and hysteresis, with at least 25 s between corrective cues and no "speed up" in the first 90 s of an interval while HR is still rising fast enough to reach the zone.
