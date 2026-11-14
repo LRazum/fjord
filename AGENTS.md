@@ -87,7 +87,8 @@ tests/                node:test suites; helpers.js builds synthetic workout reco
 
 **WorkoutSession** owns the engine.
 - **Clock:** time comes from the injectable `now()` and is multiplied by `timeScale`.
-- **Samples:** it records `samples[sec] = bpm | null` at 1 Hz of workout time. A strap reading older than 5 s counts as missing.
+- **Controls:** Pause, Resume, Skip and End settle pending wall-clock time before changing engine state. Resume settles it while still paused, so suspended timers cannot count paused time. A Skip that catches up across a natural phase boundary leaves the newly entered phase running.
+- **Samples:** it records `samples[sec] = bpm | null` at 1 Hz of workout time. Strap readings are timestamped and buffered until consumed. Each sample uses the reading available at its actual wall-clock time (including time scale and pauses); a future reading must never backfill earlier seconds. A reading older than 5 real seconds counts as missing. Ready-to-workout transfer preserves the reading's original age.
 - **Treadmill log:** `treadmillLog` holds `{t, speed, incline, src: 'plan'|'carry'|'user'}`. Rapid +/− taps within 4 s merge into one entry.
 - **Carry-over:** a user change in one phase carries to the next phase of the same type (`targets`, `finalTargets`).
 - **Snapshots:** `toSnapshot()` / `new WorkoutSession({restore})` / `attach()` handle crash recovery, and `toRecord()` gives the stored record.
@@ -145,7 +146,7 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 | 4 | IndexedDB storage, crash recovery, history, detail, progress, stats, recommendations | done |
 | 5 | Onboarding, settings, JSON backup/import, CSV, TCX, live HR strip, zone in bpm, screen-on video fallback | done |
 
-149 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips.
+160 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips. Session tests cover unticked pauses, precise End/Skip timestamps, natural phase/finish boundaries and timestamped HR catch-up without fabricated data.
 
 ## Known gaps and open items
 

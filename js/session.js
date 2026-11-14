@@ -56,6 +56,8 @@ export class WorkoutSession extends Emitter {
 
     this.lastHr = null;
     this.lastHrAt = -Infinity; // real ms
+    this._hrReadings = []; // unconsumed, timestamped strap readings
+    this._sampleClock = { wallMs: now(), workoutMs: 0 };
     this.lastRr = []; // RR intervals (ms) from the most recent strap reading
     this.battery = sim ? sim.battery : null;
     this.smooth = null;
@@ -68,7 +70,7 @@ export class WorkoutSession extends Emitter {
     this.startedAt = null;
     this.endedAt = null;
     this._timer = null;
-    this._lastTick = 0;
+    this._lastTick = now();
     this._simAccMs = 0;
 
     if (restore) this._restore(restore);
@@ -171,6 +173,7 @@ export class WorkoutSession extends Emitter {
     if (this.engine.state !== 'ready') return;
     this.startedAt = new Date(this.now()).toISOString();
     this._lastTick = this.now();
+    this._sampleClock = { wallMs: this._lastTick, workoutMs: 0 };
     this.engine.start();
     if (this.sim) this._stepSim(0, true);
     this._recordSecond(0);
@@ -178,11 +181,17 @@ export class WorkoutSession extends Emitter {
   }
 
   pause() {
+    if (this.state !== 'running') return;
+    this.tick();
     this.engine.pause();
     this.emit('tick', this.snapshot());
   }
 
   resume() {
+    if (this.state !== 'paused') return;
+    // A suspended browser may not have ticked at all while paused. Consume that
+    // wall-clock gap in the paused state before allowing workout time to advance.
+    this.tick();
     this.engine.resume();
     this.emit('tick', this.snapshot());
   }
@@ -193,11 +202,17 @@ export class WorkoutSession extends Emitter {
   }
 
   skip() {
+    const phaseIndex = this.engine.phaseIndex;
+    this.tick();
+    // If the phase ended naturally since the last paint, do not also skip the
+    // new phase that the user has not had a chance to see yet.
+    if (this.engine.phaseIndex !== phaseIndex) return;
     this.engine.skip();
     this.emit('tick', this.snapshot());
   }
 
   end() {
+    this.tick();
     this.engine.end();
   }
 
@@ -207,10 +222,14 @@ export class WorkoutSession extends Emitter {
   }
 
   /** A reading from a real strap. */
-  pushHr(bpm, rr, contact = this.contact) {
-    if (!(bpm > 0)) return;
+  pushHr(bpm, rr, contact = this.contact, at = this.now()) {
+    if (!Number.isFinite(bpm) || !(bpm > 0) || !Number.isFinite(at)) return;
     this.lastHr = bpm;
-    this.lastHrAt = this.now();
+    this.lastHrAt = at;
+    let i = this._hrReadings.length;
+    while (i > 0 && this._hrReadings[i - 1].at > at) i--;
+    this._hrReadings.splice(i, 0, { at, bpm });
+    this._pruneHr(this._lastTick - STALE_MS);
     this.lastRr = rr || [];
     this.contact = contact;
     this._updateCoaching();
@@ -273,6 +292,7 @@ export class WorkoutSession extends Emitter {
   /** Called every TICK_MS; also callable directly in tests. */
   tick() {
     const now = this.now();
+    this._sampleClock = { wallMs: this._lastTick, workoutMs: this.engine.elapsedMs };
     let dt = (now - this._lastTick) * this.timeScale;
     this._lastTick = now;
     if (!(dt > 0)) dt = 0;
@@ -287,6 +307,7 @@ export class WorkoutSession extends Emitter {
         this._stepSim(1, false);
       }
     }
+    this._pruneHr(now - STALE_MS);
     this._updateCoaching();
     if (this.engine.state !== 'finished') this.emit('tick', this.snapshot());
   }
@@ -326,8 +347,32 @@ export class WorkoutSession extends Emitter {
     return this.now() - this.lastHrAt <= STALE_MS ? this.lastHr : null;
   }
 
+  _hrAt(at) {
+    let low = 0;
+    let high = this._hrReadings.length - 1;
+    let reading = null;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const value = this._hrReadings[mid];
+      if (value.at <= at) {
+        reading = value;
+        low = mid + 1;
+      } else high = mid - 1;
+    }
+    return reading && at - reading.at <= STALE_MS ? reading.bpm : null;
+  }
+
+  _pruneHr(before) {
+    let count = 0;
+    while (count < this._hrReadings.length && this._hrReadings[count].at < before) count++;
+    if (count) this._hrReadings.splice(0, count);
+  }
+
   _recordSecond(sec) {
-    const bpm = this.currentHr();
+    // Use the time this workout second actually occurred, rather than a fresh
+    // reading that may have arrived only after the browser resumed its timer.
+    const at = this._sampleClock.wallMs + (this.engine.elapsedMs - this._sampleClock.workoutMs) / this.timeScale;
+    const bpm = this.sim ? this.currentHr() : this._hrAt(at);
     this.samples[sec] = bpm;
     this.smooth = smoothedHr(this.samples, sec, 5);
     this.trend = hrTrend(this.samples, sec, 18);
