@@ -51,6 +51,8 @@ node --test tests/*.test.js
 
 `npm test` runs the same command. There are no packages to install.
 
+GitHub Actions runs the tests on Node 18 and 24 for every pull request and push to `main`. It also checks that all browser modules are cached for offline use, that cached files exist, and that English and Croatian translations have matching keys and parameters. CI has no dependency-install or build step.
+
 ## Deploy to GitHub Pages
 
 The app is plain static files with relative paths, so it works from a sub-path like `https://<user>.github.io/fjord/`.
