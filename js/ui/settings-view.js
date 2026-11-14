@@ -1,20 +1,22 @@
 import { t, LANGUAGES, getLang } from '../i18n.js';
 import { esc } from './dom.js';
 import { stepper, segmented, bindForm } from './form.js';
-import { estimateMaxHr } from '../settings.js';
+import { hasMaxHr } from '../settings.js';
 import { STRAPS, strapById } from '../straps.js';
 import { backHeader } from './views-common.js';
 
 const PHASES = ['warmup', 'interval', 'recovery', 'cooldown'];
 
 export function heartRateFields(s) {
-  const est = s.age ? estimateMaxHr(s.age) : null;
   return `
-    ${stepper({ label: t('set.maxHr'), path: 'maxHr', value: s.maxHr, step: 1, min: 120, max: 230, unit: 'bpm' })}
-    ${stepper({ label: t('set.age'), path: 'age', value: s.age, step: 1, min: 10, max: 99, hint: t('set.ageHint') })}
-    <p class="estimate" data-estimate>${est ? esc(t('set.estimate', { bpm: est })) : ''}
-      ${est ? `<button type="button" class="btn btn-link" data-action="use-estimate">${esc(t('set.useEstimate'))}</button>` : ''}</p>
-    <p class="muted small">${esc(t('set.fieldTest'))}</p>
+    ${segmented({ label: t('hr.choose'), path: 'maxHrSource', value: s.maxHrSource,
+      options: [['known', t('hr.know')], ['age', t('hr.estimate')]] })}
+    ${s.maxHrSource === 'known'
+      ? stepper({ label: t('set.maxHr'), path: 'maxHr', value: s.maxHr, step: 1, min: 120, max: 230, unit: 'bpm', nullable: true })
+      : s.maxHrSource === 'age'
+        ? stepper({ label: t('set.age'), path: 'age', value: s.age, step: 1, min: 10, max: 99, hint: t('set.ageHint'), nullable: true }) : ''}
+    <p class="note" data-hr-status>${esc(hasMaxHr(s) ? t(s.maxHrSource === 'age' ? 'hr.estimated' : 'hr.known', { bpm: s.maxHr }) : t('hr.unset'))}</p>
+    ${s.maxHrSource === 'age' ? `<p class="muted small">${esc(t('hr.estimateHelp'))}</p>` : ''}
     ${stepper({ label: t('set.restHr'), path: 'restHr', value: s.restHr, step: 1, min: 30, max: 110, unit: 'bpm', hint: t('set.optional') })}`;
 }
 
@@ -52,7 +54,9 @@ export function adjustFields(s) {
       ['incline', t('set.adjust.incline')],
       ['both', t('set.adjust.both')],
     ],
-  });
+  }) + segmented({ label: t('coach.enabled'), path: 'coachingEnabled', value: String(s.coachingEnabled !== false),
+    options: [['true', t('common.on')], ['false', t('common.off')]] })
+    + `<p class="muted small">${esc(t('coach.help'))}</p>`;
 }
 
 /**
@@ -143,8 +147,11 @@ export function renderSettings(root, s, ctx) {
 
   bindForm(root, (path, value) => {
     ctx.onChange(path, value);
-    if (path === 'age' || path === 'maxHr') refreshEstimate(root, s);
-    if (path === 'strapModel') renderSettings(root, s, ctx);
+    if (['age', 'maxHr', 'maxHrSource', 'strapModel'].includes(path)) {
+      const y = window.scrollY;
+      renderSettings(root, s, ctx);
+      window.scrollTo(0, y);
+    }
   });
 
   root.onclick = (e) => {
@@ -156,11 +163,6 @@ export function renderSettings(root, s, ctx) {
     else if (a === 'backup') ctx.exportBackup();
     else if (a === 'csv') ctx.exportCsv();
     else if (a === 'onboarding') ctx.onboarding();
-    else if (a === 'use-estimate' && s.age) {
-      ctx.onChange('maxHr', estimateMaxHr(s.age));
-      ctx.onChange('maxHrSource', 'age');
-      renderSettings(root, s, ctx);
-    }
   };
   root.onchange = (e) => {
     if (e.target.dataset.action === 'import' && e.target.files && e.target.files[0]) {
@@ -168,13 +170,4 @@ export function renderSettings(root, s, ctx) {
       e.target.value = '';
     }
   };
-}
-
-function refreshEstimate(root, s) {
-  const el = root.querySelector('[data-estimate]');
-  if (!el) return;
-  const est = s.age ? estimateMaxHr(s.age) : null;
-  el.innerHTML = est
-    ? `${esc(t('set.estimate', { bpm: est }))} <button type="button" class="btn btn-link" data-action="use-estimate">${esc(t('set.useEstimate'))}</button>`
-    : '';
 }

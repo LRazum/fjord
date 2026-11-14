@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS = {
   adjustPref: 'speed', // 'speed' | 'incline' | 'both'
   speedStep: 0.5,
   inclineStep: 0.5,
+  coachingEnabled: true,
 
   // Durations in seconds.
   structure: {
@@ -96,4 +97,27 @@ export function saveSettings(settings) {
 /** 208 − 0.7 × age (Tanaka). */
 export function estimateMaxHr(age) {
   return Math.round(208 - 0.7 * age);
+}
+
+const validAge = (age) => Number.isFinite(age) && age >= 10 && age <= 99;
+
+/** The fallback value must never silently become a personal HRmax. */
+export function hasMaxHr(s) {
+  if (!Number.isFinite(s.maxHr) || s.maxHr < 120 || s.maxHr > 230) return false;
+  return s.maxHrSource === 'known' || (s.maxHrSource === 'age' && validAge(s.age));
+}
+
+/** Shared profile edits keep the source and age-based estimate in step. */
+export function updateHeartRateSettings(s, path, value) {
+  if (path === 'maxHrSource' && (value === 'known' || value === 'age')) {
+    s.maxHrSource = value;
+    if (value === 'age' && validAge(s.age)) s.maxHr = estimateMaxHr(s.age);
+  } else if (path === 'age') {
+    s.age = value;
+    if (s.maxHrSource === 'age' && validAge(value)) s.maxHr = estimateMaxHr(value);
+  } else if (path === 'maxHr') {
+    s.maxHr = value;
+    s.maxHrSource = 'known';
+  } else return false;
+  return true;
 }

@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import { workoutStats, recommendNext, progress, weekKey, flatEquivalentSpeed, settingsPerSecond } from '../js/stats.js';
 import { makeRecord } from './helpers.js';
 
+test('recommendNext: the initial fallback HRmax cannot personalize a plan', () => {
+  const rec = makeRecord({ hr: () => 150, settings: { maxHrSource: 'default' } });
+  assert.equal(recommendNext(rec).action, 'none');
+  assert.equal(recommendNext(rec).reason, 'maxHr');
+});
+
+test('recommendNext: an age estimate can produce a recommendation without changing settings', () => {
+  const rec = makeRecord({ hr: () => 150, settings: { maxHrSource: 'age', age: 40, maxHr: 180 } });
+  const previous = JSON.stringify(rec.settings);
+  assert.notEqual(recommendNext(rec).action, 'none');
+  assert.equal(JSON.stringify(rec.settings), previous);
+});
+
 // maxHr 200: interval zone 85–95 % = 170–190 bpm, recovery zone 60–70 % = 120–140 bpm.
 // Layout: warmup 0–60, interval1 60–300, recovery1 300–420, interval2 420–660, cooldown 660–720.
 

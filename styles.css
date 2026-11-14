@@ -100,6 +100,11 @@ button {
   filter: brightness(1.15);
 }
 
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .btn:focus-visible,
 .seg-btn:focus-visible,
 .tm-btn:focus-visible {
@@ -1078,10 +1083,11 @@ details.tips li {
   overflow: hidden;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   grid-template-areas:
     'top'
     'main'
+    'coach'
     'tread'
     'ctrl';
   gap: clamp(6px, 1.4vh, 14px);
@@ -1149,6 +1155,80 @@ details.tips li {
 .wo-dots {
   display: flex;
   gap: 6px;
+}
+
+.wo-hrmax {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wo-coach {
+  grid-area: coach;
+  border: 1px solid var(--accent);
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 12px;
+  padding: 6px 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.wo-coach-copy {
+  min-width: 0;
+  text-align: center;
+  font-size: 0.85rem;
+  line-height: 1.25;
+}
+
+.wo-coach-copy strong {
+  display: block;
+  font-size: 1.15rem;
+}
+
+.wo-coach-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wo-coach-actions .btn {
+  min-height: 56px;
+  padding: 6px;
+  font-size: 0.95rem;
+}
+
+.has-suggestion .wo-main {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-content: center;
+  column-gap: 8px;
+}
+
+.has-suggestion .wo-sub {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.has-suggestion .wo-bpm {
+  font-size: clamp(3rem, min(25vw, 16vh), 7rem);
+}
+
+.has-suggestion .wo-cue,
+.has-suggestion .wo-chart {
+  display: none;
+}
+
+.has-suggestion .tm-target,
+.has-suggestion .tm-set-label {
+  display: none;
+}
+
+.has-suggestion .tm-set {
+  font-size: 1.6rem;
 }
 
 .wo-dots i {
@@ -1423,6 +1503,34 @@ details.tips li {
 }
 
 @media (orientation: portrait) and (max-height: 600px) {
+  .has-suggestion .wo-meta {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 2px 6px;
+  }
+
+  .has-suggestion .wo-total {
+    grid-column: 1 / -1;
+  }
+
+  .has-suggestion .wo-phase {
+    gap: 2px;
+  }
+
+  .has-suggestion .wo-dots i {
+    width: 10px;
+    height: 10px;
+  }
+
+  .has-suggestion .wo-bpm {
+    font-size: 3rem;
+  }
+
+  .has-suggestion .wo-sub,
+  .has-suggestion .wo-bpm-unit {
+    font-size: 0.8rem;
+  }
+
   .wo-bpm {
     font-size: clamp(3.2rem, min(34vw, 17vh), 9rem);
   }
@@ -1449,12 +1557,39 @@ details.tips li {
 @media (orientation: landscape) and (max-height: 700px) {
   .screen-workout {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
     grid-template-areas:
       'top top'
       'main tread'
-      'main ctrl';
+      'main ctrl'
+      'coach coach';
     column-gap: 16px;
+  }
+
+  .screen-workout.has-suggestion {
+    grid-template-areas: 'top top' 'main tread' 'coach coach' 'ctrl ctrl';
+  }
+
+  .wo-coach {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .has-suggestion .wo-bpm {
+    font-size: clamp(3rem, 18vh, 5rem);
+  }
+
+  .has-suggestion .tm {
+    padding: 6px 8px;
+    gap: 2px;
+  }
+
+  .has-suggestion .tm-head {
+    font-size: 0.65rem;
+  }
+
+  .has-suggestion .tm-set {
+    font-size: clamp(1.2rem, 6vh, 2rem);
   }
 
   .wo-bpm {
@@ -1502,6 +1637,17 @@ details.tips li {
 
   .wo-btn {
     min-height: clamp(44px, 12vh, 64px);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 360px) {
+  .has-suggestion .wo-bpm {
+    font-size: 3rem;
+  }
+
+  .has-suggestion .wo-sub,
+  .has-suggestion .wo-bpm-unit {
+    font-size: 0.8rem;
   }
 }
 

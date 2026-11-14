@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, clone } from '../js/settings.js';
 export function makeRecord({ hr, structure = {}, settings: over = {}, startedAt = '2026-11-02T17:00:00.000Z', tread } = {}) {
   const settings = clone(DEFAULT_SETTINGS);
   settings.maxHr = 200;
+  settings.maxHrSource = 'known';
   Object.assign(settings.structure, { warmupSec: 60, intervals: 2, intervalSec: 240, recoverySec: 120, cooldownSec: 60 }, structure);
   Object.assign(settings, over);
   const plan = buildPlan(settings);

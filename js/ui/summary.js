@@ -8,7 +8,7 @@ import { tile, dash, recommendationText, rpeButtons, bindRpe } from './views-com
 
 /**
  * Post-workout screen: key numbers, next-session recommendation, RPE and a note.
- * @param {object} ctx { recommendation, applied, onApply(), onDone(rec), onDetails(rec) }
+ * @param {object} ctx { recommendation, onApply(), onDone(rec), onDetails(rec) }
  */
 export function renderSummary(root, rec, ctx) {
   const st = workoutStats(rec);
@@ -19,10 +19,11 @@ export function renderSummary(root, rec, ctx) {
   let recBlock = '';
   if (r) {
     let action = '';
-    if (r.action === 'harder' || r.action === 'easier') {
-      action = ctx.applied
-        ? `<p class="muted small">${esc(t('rec.applied'))}</p>`
-        : `<button class="btn btn-block" data-action="apply">${esc(t('rec.apply'))}</button>`;
+    if (r.action !== 'none') {
+      action = `<div data-rec-actions class="btn-col">
+        <button class="btn btn-block" data-action="apply">${esc(t('rec.apply'))}</button>
+        <button class="btn btn-block" data-action="keep-plan">${esc(t('rec.skip'))}</button>
+      </div>`;
     }
     recBlock = `<section class="card rec-card rec-${r.action}">
         <h2>${esc(t('rec.title'))}</h2>
@@ -69,15 +70,17 @@ export function renderSummary(root, rec, ctx) {
     return rec;
   };
 
+  let decided = false;
   root.onclick = async (e) => {
     const b = e.target.closest('[data-action]');
     if (!b) return;
     const a = b.dataset.action;
     if (a === 'done') ctx.onDone(collect());
     else if (a === 'details') ctx.onDetails(collect());
-    else if (a === 'apply') {
-      ctx.onApply();
-      b.outerHTML = `<p class="muted small">${esc(t('rec.applied'))}</p>`;
+    else if ((a === 'apply' || a === 'keep-plan') && !decided) {
+      decided = true;
+      if (a === 'apply') ctx.onApply();
+      root.querySelector('[data-rec-actions]').innerHTML = `<p class="muted small">${esc(t(a === 'apply' ? 'rec.applied' : 'rec.skipped'))}</p>`;
     } else if (a === 'tcx') {
       try {
         const how = await saveFile(exportBaseName(rec) + '.tcx', 'application/vnd.garmin.tcx+xml', toTcx(rec));

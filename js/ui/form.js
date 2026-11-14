@@ -21,13 +21,13 @@ const decimals = (step) => (String(step).split('.')[1] || '').length;
  * A number with big −/+ buttons.
  * kind: 'num' (stored as is) or 'min' (stored in seconds, shown in minutes).
  */
-export function stepper({ label, path, value, step = 1, min = 0, max = 999, unit = '', kind = 'num', hint = '' }) {
+export function stepper({ label, path, value, step = 1, min = 0, max = 999, unit = '', kind = 'num', hint = '', nullable = false }) {
   const shown = kind === 'min' ? value / 60 : value;
   const d = decimals(step);
   return `
     <div class="field">
       <label class="field-label" for="f-${esc(path)}">${esc(label)}</label>
-      <div class="stepper" data-path="${esc(path)}" data-kind="${kind}" data-step="${step}" data-min="${min}" data-max="${max}" data-dec="${d}">
+      <div class="stepper" data-path="${esc(path)}" data-kind="${kind}" data-step="${step}" data-min="${min}" data-max="${max}" data-dec="${d}" data-nullable="${nullable}">
         <button type="button" class="stepper-btn" data-delta="-1" aria-label="${esc(label)} −">−</button>
         <span class="stepper-value">
           <input id="f-${esc(path)}" type="text" inputmode="decimal" autocomplete="off" value="${esc(shown == null ? '' : fmtNum(shown, d))}">
@@ -74,6 +74,11 @@ export function bindForm(root, onChange) {
     const input = box.querySelector('input');
     let v = raw;
     if (v == null) {
+      if (box.dataset.nullable === 'true' && !input.value.trim()) {
+        input.classList.remove('invalid');
+        onChange(box.dataset.path, null);
+        return;
+      }
       input.classList.add('invalid');
       return;
     }

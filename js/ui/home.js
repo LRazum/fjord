@@ -4,6 +4,7 @@ import { esc } from './dom.js';
 import { buildPlan } from '../workout.js';
 import { zoneBpm } from '../hrmath.js';
 import { strapById } from '../straps.js';
+import { maxHrText } from './views-common.js';
 
 /**
  * @param {HTMLElement} root
@@ -60,7 +61,7 @@ export function renderHome(root, app, on) {
             c: min(st.cooldownSec),
           }),
         )}</p>
-        <p class="muted">${esc(t('home.total', { min: Math.round(plan.totalSec / 60) }))} · ${esc(t('home.maxHr'))} ${s.maxHr} bpm</p>
+        <p class="muted">${esc(t('home.total', { min: Math.round(plan.totalSec / 60) }))} · ${esc(maxHrText(s))}</p>
         <table class="plan-table">
           <thead><tr><th></th><th>${esc(t('home.zonesBpm'))}</th><th>${esc(t('home.targets'))}</th></tr></thead>
           <tbody>${rows}</tbody>

@@ -56,6 +56,7 @@ js/
   workout.js          buildPlan(settings) + WorkoutEngine state machine (pure)
   session.js          WorkoutSession: timer, 1 Hz HR samples, treadmill log, snapshots
   ready.js            ReadySession: live HR preview and five real seconds of countdown (pure)
+  coaching.js         WorkoutCoach: persistent HR deviations, small suggestions, response delay (pure)
   simulator.js        HrSimulator (ACSM VO2 model, first-order HR lag, fatigue, drift, noise)
   hrmath.js           smoothedHr (5 s), hrTrend (18 s slope), zoneStatus (hysteresis), zoneBpm
   hrparse.js          parseHeartRateMeasurement(DataView) for characteristic 0x2A37
@@ -92,6 +93,8 @@ tests/                node:test suites; helpers.js builds synthetic workout reco
 
 **ReadySession** precedes a new workout. It has no DOM or timers: the controller calls `tick()` with an injectable real-time clock. Its states are `ready → counting → finished` or `cancelled`. HR older than 5 s is missing; missing HR and no skin contact never block Start. The simulator previews a standing runner and is reused by the workout. Only after the countdown finishes does the controller create and start `WorkoutSession`. Cancel clears the preview timer and releases the screen lock. A hidden page resets an active countdown to `ready`.
 
+**WorkoutCoach** is owned by `WorkoutSession`. It uses workout seconds, 5 s smoothed HR, the 18 s trend, and the current phase. A deviation beyond the zone by more than 1 percentage point must persist for 20 s. No increases in the first 90 s of an interval (60 s of warm-up), during recovery/cool-down, or while the trend is already heading into the zone. No suggestions in the first/last 30 s of a phase, on pause, without a configured HRmax, with stale/missing HR, disconnection, or no skin contact. Steps are capped at 0.5 km/h or 0.5 percentage points of incline; `both` alternates one control at a time. Confirm/Skip/manual adjustment defers proposals for 60 s. `confirmSuggestion(id)` rechecks the clock, phase and signal, then logs a user change. Suggestions are transient and are not stored in snapshots or records.
+
 **Workout record** (stored in IndexedDB, exported in backups):
 `{ id, startedAt, endedAt, durationSec, finishReason, source:'sim'|'ble', timeScale, settings, plan, phases:[{i,type,index,startSec,endSec,plannedSec,end:'done'|'skipped'|'ended'}], samples, treadmillLog, finalTargets, rpe?, note?, strapName? }`.
 If you change this shape, keep old records readable and keep `parseBackup` and `BACKUP_FORMAT` in step.
@@ -101,6 +104,7 @@ If you change this shape, keep old records readable and keep `parseBackup` and `
 - Adjusting: `adjustPref`, `speedStep`, `inclineStep`.
 - Plan: `structure.{warmupSec,intervals,intervalSec,recoverySec,cooldownSec}`, `zones.{phase}:[lo,hi]` in % HRmax, `treadmill.{phase}:{speed,incline}`.
 - Developer: `dev.{timeScale,simProfile}`.
+- Live suggestions: `coachingEnabled` (defaults to true). `maxHrSource` is explicitly chosen as `known` or `age`; `hasMaxHr` rejects the initial fallback and age mode without a valid age. Profile updates use `updateHeartRateSettings`; age estimates are labelled and update with age. Starting a new workout requires a configured HRmax; older saved workouts remain readable.
 
 New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old saved settings. Bump `version` only when a migration is needed (see `loadSettings`).
 
@@ -112,7 +116,7 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 - **Recommendation:** below the zone means harder, above means easier. A deviation of 4 points or more means two steps.
   - The step is ±0.5 km/h for speed, ±1 % for incline, and ±0.5 km/h plus ±0.5 % for both.
   - It starts from `finalTargets.interval`.
-  - It is applied to `settings.treadmill.interval` automatically for strap workouts and through a button for simulated ones.
+  - It changes `settings.treadmill.interval` only through explicit acceptance, for both strap and simulator workouts. Keep current plan leaves settings untouched. An unset HRmax returns `action: 'none', reason: 'maxHr'`.
 
 ## Conventions
 
@@ -136,11 +140,11 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 |---|---|---|
 | 1 | Engine, simulator, workout screen, offline shell | done |
 | 2 | Bluetooth strap: parsing, connection, battery, auto-reconnect, banner | done; covered by tests and a fake device, **not yet tried with a real strap** |
-| 3 | Coaching cues, voice (speechSynthesis, Croatian with English fallback), sounds | **dropped by the user for now**; leftovers: engine `cue` events, `WorkoutView.setCue()` |
+| 3 | Voice (speechSynthesis) and sounds | **dropped by the user for now**; optional text suggestions were subsequently approved and implemented in `coaching.js` |
 | 4 | IndexedDB storage, crash recovery, history, detail, progress, stats, recommendations | done |
 | 5 | Onboarding, settings, JSON backup/import, CSV, TCX, live HR strip, zone in bpm, screen-on video fallback | done |
 
-121 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback.
+146 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips.
 
 ## Known gaps and open items
 
@@ -149,7 +153,7 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
   - Whether the silent-video fallback actually keeps the iPhone screen on.
   - Whether Strava and Garmin accept the TCX files.
 - **Publishing:**
-  - The GitHub remote is `https://github.com/LRazum/fjord.git`. GitHub Pages is not enabled yet; the README describes the steps.
+  - The GitHub remote is `https://github.com/LRazum/fjord.git`. The user enabled GitHub Pages from `main`, `/ (root)`; the README describes the setup.
   - Do not push, create repositories or publish anything without the user's explicit approval.
 - **Small issues:**
   - The live HR strip on the workout screen is mostly empty in the first minutes of a workout.
@@ -157,7 +161,6 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 - **Ideas the user has not decided on:**
   - A touch lock during the workout.
   - "+1 min" and "one more interval" buttons.
-  - Coaching cues: they would reuse the engine `cue` events, `hrmath` trend and hysteresis, with at least 25 s between corrective cues and no "speed up" in the first 90 s of an interval while HR is still rising fast enough to reach the zone.
 
 ## Working with the user
 

@@ -3,6 +3,7 @@ import { fmtClock, fmtNum, phaseName } from '../format.js';
 import { esc, fields, setText } from './dom.js';
 import { zoneBpm } from '../hrmath.js';
 import { liveChartGeometry } from '../charts.js';
+import { maxHrText } from './views-common.js';
 
 const HOLD_DELAY_MS = 450;
 const HOLD_REPEAT_MS = 160;
@@ -44,7 +45,7 @@ export class WorkoutView {
     const dots = Array.from({ length: n }, (_, i) => `<i data-dot="${i + 1}"></i>`).join('');
     const tmBlock = (kind, unitKey, step) => `
       <div class="tm" data-kind="${kind}">
-        <div class="tm-head">${esc(t(kind === 'speed' ? 'wo.targetSpeed' : 'wo.targetIncline'))}</div>
+        <div class="tm-head" data-f="${kind}Label">${esc(t(kind === 'speed' ? 'wo.targetSpeed' : 'wo.targetIncline'))}</div>
         <div class="tm-target"><span data-f="${kind}Target">--</span><small>${esc(t(unitKey))}</small></div>
         <div class="tm-set"><span class="tm-set-label">${esc(t('wo.set'))}</span> <span data-f="${kind}Set">--</span></div>
         <div class="tm-row">
@@ -63,6 +64,7 @@ export class WorkoutView {
         <div class="wo-phase">
           <span class="wo-phase-name" data-f="phaseName"></span>
           <span class="wo-dots" data-f="dots">${dots}</span>
+          <span class="wo-hrmax">${esc(maxHrText(s))}</span>
         </div>
         <div class="wo-meta">
           <span class="pill pill-sim" data-f="source" hidden>${esc(t('wo.sim'))}</span>
@@ -88,6 +90,17 @@ export class WorkoutView {
         </svg>
         <div class="wo-paused" data-f="paused" hidden>${esc(t('wo.paused'))}</div>
       </main>
+
+      <section class="wo-coach" data-f="coach" hidden>
+        <div class="wo-coach-copy" aria-live="polite">
+          <span data-f="coachReason"></span>
+          <strong data-f="coachChange"></strong>
+        </div>
+        <div class="wo-coach-actions">
+          <button class="btn btn-primary" data-action="coach-accept" data-f="coachAccept">${esc(t('coach.accept'))}</button>
+          <button class="btn" data-action="coach-skip" data-f="coachSkip">${esc(t('coach.skip'))}</button>
+        </div>
+      </section>
 
       <section class="wo-tread">
         ${tmBlock('speed', 'wo.kmh', s.speedStep)}
@@ -145,6 +158,8 @@ export class WorkoutView {
       else if (a === 'skip') this._skip(b);
       else if (a === 'end') this.on.requestEnd();
       else if (a === 'reconnect' && this.on.reconnect) this.on.reconnect();
+      else if (a === 'coach-accept') this.session.confirmSuggestion(Number(b.dataset.id));
+      else if (a === 'coach-skip') this.session.dismissSuggestion(Number(b.dataset.id));
     };
   }
 
@@ -212,6 +227,7 @@ export class WorkoutView {
     setText(f.zoneText, t('wo.zone', { lo: bpmLo, hi: bpmHi }));
     setText(f.zonePct, t('wo.zonePct', { lo: phase.zone[0], hi: phase.zone[1] }));
     this._updateChart(s);
+    this._updateSuggestion(s.suggestion);
     // Zone state in words too, so it does not depend on telling the colours apart.
     // A coaching cue (milestone 3) takes over this line while it is active.
     setText(f.cue, this._cue || (s.zone ? t('wo.zone.' + s.zone) : ''));
@@ -247,6 +263,21 @@ export class WorkoutView {
     root.classList.toggle('last-seconds', s.state === 'running' && s.phaseRemainingSec <= 3.05);
   }
 
+  _updateSuggestion(p) {
+    const f = this.f;
+    f.coach.hidden = !p;
+    this.root.classList.toggle('has-suggestion', !!p);
+    for (const kind of ['speed', 'incline']) {
+      setText(f[kind + 'Label'], t(p ? 'wo.' + kind : kind === 'speed' ? 'wo.targetSpeed' : 'wo.targetIncline'));
+    }
+    if (!p) return;
+    setText(f.coachReason, t('coach.' + p.reason));
+    setText(f.coachChange, t('coach.change', { kind: t('wo.' + p.kind),
+      from: fmtNum(p.from, 1), to: fmtNum(p.to, 1), unit: t(p.kind === 'speed' ? 'wo.kmh' : 'wo.pct') }));
+    f.coachAccept.dataset.id = p.id;
+    f.coachSkip.dataset.id = p.id;
+  }
+
   // Last three minutes of heart rate against the zone; redrawn once per workout second.
   _updateChart(s) {
     const sec = Math.floor(s.elapsedSec);
@@ -276,7 +307,7 @@ export class WorkoutView {
     r.onpointerdown = r.onpointerup = r.onpointercancel = r.onpointerout = r.oncontextmenu = r.onclick = null;
     delete r.dataset.zone;
     delete r.dataset.phase;
-    r.classList.remove('is-paused', 'last-seconds');
+    r.classList.remove('is-paused', 'last-seconds', 'has-suggestion');
     this.root.innerHTML = '';
   }
 }

@@ -1,10 +1,11 @@
 import { t } from '../i18n.js';
 import { fmtNum, phaseName } from '../format.js';
 import { esc, fields, setText } from './dom.js';
+import { maxHrText } from './views-common.js';
 
 /** Live HR check before any workout time or samples are recorded. */
 export class ReadyView {
-  constructor(root, ready, plan, strap, on) {
+  constructor(root, ready, plan, strap, settings, on) {
     this.root = root;
     this.ready = ready;
     this.strap = strap;
@@ -20,6 +21,7 @@ export class ReadyView {
           <span class="ready-battery" data-f="battery"></span>
         </div>
         <div class="ready-connection" data-f="connection"></div>
+        <div class="ready-connection">${esc(maxHrText(settings))}</div>
       </div>
       <main class="ready-main">
         <div class="ready-pulse">
