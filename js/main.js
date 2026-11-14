@@ -4,6 +4,7 @@ import { t, setLang } from './i18n.js';
 import { loadSettings, saveSettings, clone } from './settings.js';
 import { buildPlan } from './workout.js';
 import { WorkoutSession } from './session.js';
+import { ReadySession } from './ready.js';
 import { HrSimulator, profileBias } from './simulator.js';
 import { StrapConnection, bluetoothSupported } from './ble.js';
 import { keepScreenOn, releaseScreen } from './wakelock.js';
@@ -14,6 +15,7 @@ import { fmtClock } from './format.js';
 import { showScreen, toast } from './ui/dom.js';
 import { renderHome, strapCardHtml } from './ui/home.js';
 import { WorkoutView } from './ui/workout-view.js';
+import { ReadyView } from './ui/ready-view.js';
 import { renderSummary } from './ui/summary.js';
 import { renderHistory } from './ui/history.js';
 import { renderDetail } from './ui/detail.js';
@@ -30,16 +32,18 @@ const AUTOSAVE_MS = 5000;
 const app = {
   settings: loadSettings(),
   session: null,
+  ready: null,
   view: null,
   strap: null,
   btSupported: bluetoothSupported(),
   storage: null,
   liveBpm: null,
+  liveHrAt: -Infinity,
   includeSim: true,
 };
 
 const screens = {};
-for (const id of ['home', 'workout', 'summary', 'history', 'detail', 'progress', 'settings', 'onboarding']) {
+for (const id of ['home', 'ready', 'workout', 'summary', 'history', 'detail', 'progress', 'settings', 'onboarding']) {
   screens[id] = document.getElementById('screen-' + id);
 }
 
@@ -60,6 +64,8 @@ function setupStrap() {
   const strap = (app.strap = new StrapConnection());
   strap.on('hr', (m) => {
     app.liveBpm = m.bpm;
+    app.liveHrAt = Date.now();
+    if (app.ready && !app.ready.sim) app.ready.pushHr(m.bpm, m.rr);
     if (app.session && !app.session.sim) app.session.pushHr(m.bpm, m.rr);
     const el = document.querySelector('[data-live-bpm]');
     if (el) el.textContent = m.bpm;
@@ -113,6 +119,7 @@ function showHome() {
 // ---------- workout ----------
 
 async function startWorkout() {
+  if (app.ready || app.session) return;
   // Start these inside the tap: the screen-on video and Bluetooth need a user gesture.
   const screenOn = keepScreenOn();
   let sim = useSimulator();
@@ -146,12 +153,44 @@ async function startWorkout() {
         bias: profileBias(s.dev.simProfile),
       })
     : null;
-  const session = new WorkoutSession({ settings: s, plan, sim: simulator, timeScale: s.dev.timeScale });
-  if (!sim && app.strap.battery != null) session.setBattery(app.strap.battery);
-  runSession(session);
-  session.start();
+  showReady(s, plan, simulator, screenOn);
+}
+
+function showReady(settings, plan, sim, screenOn) {
+  const ready = new ReadySession({ sim });
+  const strap = sim ? null : app.strap;
+  if (strap && app.liveBpm != null) ready.pushHr(app.liveBpm, [], app.liveHrAt);
+  app.ready = ready;
+  let session = null;
+  const cleanup = () => {
+    clearInterval(timer);
+    ready.cancel();
+    view.destroy();
+    app.ready = null;
+  };
+  const view = new ReadyView(screens.ready, ready, plan, strap, {
+    start: () => ready.startCountdown(),
+    cancel() {
+      cleanup();
+      releaseScreen();
+      showHome();
+    },
+  });
+  const timer = setInterval(() => ready.tick(), 100);
+  ready.on('finish', () => {
+    const bpm = ready.snapshot().bpm;
+    cleanup();
+    session = new WorkoutSession({ settings, plan, sim, timeScale: settings.dev.timeScale });
+    if (strap) {
+      if (strap.battery != null) session.setBattery(strap.battery);
+      if (strap.state === 'connected' && bpm != null) session.pushHr(bpm, ready.lastRr);
+    }
+    runSession(session);
+    session.start();
+  });
+  showScreen('ready');
   screenOn.then((how) => {
-    if (!how && app.session === session) toast(t('wo.noWakeLock'), 6000);
+    if (!how && (app.ready === ready || (session && app.session === session))) toast(t('wo.noWakeLock'), 6000);
   });
 }
 
@@ -463,6 +502,10 @@ async function offerRecovery(snap) {
 // ---------- page lifecycle ----------
 
 document.addEventListener('visibilitychange', () => {
+  if (app.ready) {
+    if (document.visibilityState !== 'visible') app.ready.resetCountdown();
+    else app.ready.tick();
+  }
   if (!app.session) return;
   if (document.visibilityState === 'visible') app.session.tick();
   else if (app.saveNow) app.saveNow();

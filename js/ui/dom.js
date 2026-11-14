@@ -31,14 +31,14 @@ export function fields(root) {
   return out;
 }
 
-const SCREENS = ['home', 'workout', 'summary', 'history', 'detail', 'progress', 'settings', 'onboarding'];
+const SCREENS = ['home', 'ready', 'workout', 'summary', 'history', 'detail', 'progress', 'settings', 'onboarding'];
 
 export function showScreen(name) {
   for (const id of SCREENS) {
     const el = document.getElementById('screen-' + id);
     if (el) el.hidden = id !== name;
   }
-  document.body.classList.toggle('in-workout', name === 'workout');
+  document.body.classList.toggle('in-workout', name === 'workout' || name === 'ready');
   window.scrollTo(0, 0);
 }
 

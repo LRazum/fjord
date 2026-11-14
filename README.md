@@ -39,7 +39,7 @@ Firefox notes:
 
 ## Tests
 
-The pure modules (`workout.js`, `session.js`, `hrmath.js`, `hrparse.js`, `ble.js`, `simulator.js`, `stats.js`, `backup.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
+The pure modules (`workout.js`, `session.js`, `ready.js`, `hrmath.js`, `hrparse.js`, `ble.js`, `simulator.js`, `stats.js`, `backup.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
 
 ```bash
 sudo apt install nodejs
@@ -94,6 +94,7 @@ js/
   settings.js       defaults, load/save (localStorage)
   workout.js        plan builder + workout state machine (pure, no DOM)
   session.js        running workout: timer, HR recording, treadmill log
+  ready.js          live HR preview and five-second countdown (pure, no DOM)
   simulator.js      simulated heart rate (pure, no DOM)
   hrmath.js         smoothing, trend, zone hysteresis (pure, no DOM)
   format.js         time/number formatting
@@ -106,7 +107,7 @@ js/
   straps.js         tested strap models and tips
   charts.js         chart geometry (pure, no DOM)
   export.js         TCX export (pure, no DOM)
-  ui/               screens: onboarding, home, workout, summary, history, detail,
+  ui/               screens: onboarding, home, ready, workout, summary, history, detail,
                     progress, settings; forms, charts, dialogs
 tests/              node:test unit tests for the pure modules
 package.json        only there so `npm test` works; no dependencies
@@ -134,6 +135,7 @@ When you add a new file, also add it to the `ASSETS` list in `sw.js` and bump `V
 
 ## How a workout behaves
 
+- **Start workout** opens a full-screen **Ready** screen after choosing the HR source or connecting the strap. Check your live HR, strap status and the first phase's treadmill target, then tap **Start** for a 5–4–3–2–1 countdown. It always takes five real seconds, even at 10× workout speed. No workout time or samples are recorded until it ends. **Cancel** returns home, including during the countdown. Missing HR (over 5 s) and no skin contact show warnings without blocking Start. Leaving the app during the countdown resets it and requires another Start tap.
 - At the start of each phase Fjord assumes you set the treadmill to the target, and logs that. Use **+ / −** to log what you really set; hold a button to repeat.
 - A change you make during a phase carries over: if you go to 11.0 km/h in interval 1, interval 2 starts with 11.0 km/h as its target. Recovery, warm-up and cool-down keep their own targets.
 - **Skip** needs a second tap within 2.5 s. **End** asks for confirmation.

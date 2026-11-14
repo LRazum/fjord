@@ -110,6 +110,15 @@ export const STRINGS = {
     'start.noStrapText': 'Spoji prsni pojas sada ili odradi ovaj trening sa simulatorom.',
     'start.useSim': 'Koristi simulator',
 
+    'ready.title': 'Spreman?',
+    'ready.instruction': 'Stani na traku i postavi brzinu.',
+    'ready.start': 'Kreni',
+    'ready.starting': 'Početak za',
+    'ready.connected': 'Pojas spojen',
+    'ready.battery': 'Baterija {level} %',
+    'ready.simStatus': 'Simulirani puls uživo',
+    'ready.noHr': 'Nema očitanja pulsa zadnjih 5 s. Možeš krenuti.',
+
     'wo.strapLost': 'Pojas se odspojio. Ponovno spajanje…',
     'wo.strapNone': 'Pojas nije spojen.',
     'wo.reconnect': 'Spoji ponovno',
@@ -371,6 +380,15 @@ export const STRINGS = {
     'start.noStrapTitle': 'No strap connected',
     'start.noStrapText': 'Connect your chest strap now, or run this workout with the simulator.',
     'start.useSim': 'Use simulator',
+
+    'ready.title': 'Ready',
+    'ready.instruction': 'Step onto the treadmill and set the speed.',
+    'ready.start': 'Start',
+    'ready.starting': 'Starting in',
+    'ready.connected': 'Strap connected',
+    'ready.battery': 'Battery {level} %',
+    'ready.simStatus': 'Live simulated heart rate',
+    'ready.noHr': 'No heart-rate reading in the last 5 s. You can still start.',
 
     'wo.strapLost': 'Strap disconnected. Reconnecting…',
     'wo.strapNone': 'No strap connected.',

@@ -10,19 +10,26 @@
 let sentinel = null;
 let video = null;
 let wanted = false;
+let generation = 0;
 
 export const wakeLockSupported = () => typeof navigator !== 'undefined' && 'wakeLock' in navigator;
 
-async function acquireLock() {
-  if (!wakeLockSupported() || document.visibilityState !== 'visible') return false;
+async function acquireLock(token = generation) {
+  if (!wanted || !wakeLockSupported() || document.visibilityState !== 'visible') return false;
+  if (sentinel && !sentinel.released) return true;
   try {
-    sentinel = await navigator.wakeLock.request('screen');
-    sentinel.addEventListener('release', () => {
-      sentinel = null;
+    const lock = await navigator.wakeLock.request('screen');
+    // Cancel may happen while the browser is still answering the request.
+    if (!wanted || token !== generation) {
+      await lock.release();
+      return false;
+    }
+    sentinel = lock;
+    lock.addEventListener('release', () => {
+      if (sentinel === lock) sentinel = null;
     });
     return true;
   } catch (_) {
-    sentinel = null;
     return false;
   }
 }
@@ -81,25 +88,32 @@ function onVisibility() {
  */
 export async function keepScreenOn() {
   wanted = true;
+  const token = ++generation;
   document.addEventListener('visibilitychange', onVisibility);
   if (!wakeLockSupported()) {
     // Start the video synchronously, while the user gesture is still active.
-    return (await playVideo()) ? 'video' : false;
+    const playing = await playVideo();
+    return wanted && token === generation && playing ? 'video' : false;
   }
-  if (await acquireLock()) return 'lock';
-  return (await playVideo()) ? 'video' : false;
+  if (await acquireLock(token)) return 'lock';
+  if (!wanted || token !== generation) return false;
+  const playing = await playVideo();
+  return wanted && token === generation && playing ? 'video' : false;
 }
 
 export async function releaseScreen() {
   wanted = false;
+  generation++;
   document.removeEventListener('visibilitychange', onVisibility);
   stopVideo();
-  if (sentinel) {
+  const lock = sentinel;
+  // Release only this lock; a new Start tap can acquire another while we await it.
+  sentinel = null;
+  if (lock) {
     try {
-      await sentinel.release();
+      await lock.release();
     } catch (_) {
       /* already released */
     }
   }
-  sentinel = null;
 }
