@@ -185,7 +185,7 @@ function showReady(settings, plan, sim, screenOn) {
     session = new WorkoutSession({ settings, plan, sim, timeScale: settings.dev.timeScale });
     if (strap) {
       if (strap.battery != null) session.setBattery(strap.battery);
-      if (strap.state === 'connected' && bpm != null) session.pushHr(bpm, ready.lastRr, strap.contact);
+      if (strap.state === 'connected' && bpm != null) session.pushHr(bpm, ready.lastRr, strap.contact, ready.lastHrAt);
     }
     runSession(session);
     session.start();

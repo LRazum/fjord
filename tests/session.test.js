@@ -5,6 +5,153 @@ import { WorkoutSession } from '../js/session.js';
 import { HrSimulator } from '../js/simulator.js';
 import { DEFAULT_SETTINGS, clone } from '../js/settings.js';
 
+test('session: a restored simulator can resume without consuming time before its creation', () => {
+  const { session, clock, step } = make();
+  step(5000);
+  const snap = session.toSnapshot();
+  clock.t += 60000;
+  const restored = new WorkoutSession({ settings: snap.settings, plan: snap.plan,
+    sim: new HrSimulator({ maxHr: snap.settings.maxHr, reference: snap.settings.treadmill.interval }),
+    restore: snap, now: () => clock.t });
+  restored.resume();
+  assert.equal(restored.engine.elapsedMs, 5000);
+  assert.equal(restored.samples.length, 6);
+  clock.t += 1000;
+  restored.tick();
+  assert.equal(restored.engine.elapsedMs, 6000);
+});
+
+test('session: a new reading after a timer gap cannot fill earlier workout seconds', () => {
+  const { session, clock } = make({ sim: false });
+  session.pushHr(100);
+  clock.t += 60000;
+  session.pushHr(160);
+  session.tick();
+  assert.deepEqual(session.samples.slice(1, 6), [100, 100, 100, 100, 100]);
+  assert.ok(session.samples.slice(6, 60).every((bpm) => bpm === null));
+  assert.equal(session.samples[60], 160);
+});
+
+test('session: notifications received between delayed ticks retain their timestamps', () => {
+  const { session, clock } = make({ sim: false });
+  for (const bpm of [120, 125, 130]) {
+    clock.t += 1000;
+    session.pushHr(bpm);
+  }
+  clock.t += 500;
+  session.tick();
+  assert.deepEqual(session.samples.slice(1, 4), [120, 125, 130]);
+});
+
+test('session: strap staleness uses real seconds when workout time is accelerated', () => {
+  const { session, clock } = make({ sim: false, timeScale: 10 });
+  session.pushHr(130);
+  clock.t += 10000;
+  session.tick();
+  assert.ok(session.samples.slice(1, 51).every((bpm) => bpm === 130));
+  assert.ok(session.samples.slice(51).every((bpm) => bpm === null));
+});
+
+test('session: paused time does not offset timestamps of later HR samples', () => {
+  const { session, clock } = make({ sim: false });
+  session.pushHr(100);
+  clock.t += 2000;
+  session.pause();
+  clock.t += 60000;
+  session.pushHr(160);
+  session.resume();
+  clock.t += 1000;
+  session.tick();
+  assert.deepEqual(session.samples.slice(1), [100, 100, 160]);
+});
+
+test('session: a Ready reading keeps its original age when recording starts', () => {
+  const settings = clone(DEFAULT_SETTINGS);
+  let clock = 1700000000000;
+  const session = new WorkoutSession({ settings, plan: buildPlan(settings), now: () => clock });
+  session.pushHr(120, [], true, clock - 5000);
+  session.start();
+  session.dispose();
+  assert.equal(session.samples[0], 120);
+  clock += 1000;
+  session.tick();
+  assert.equal(session.samples[1], null);
+});
+
+test('session: pausing settles pending time and resume excludes an unticked pause', () => {
+  for (const timeScale of [1, 10]) {
+    const settings = clone(DEFAULT_SETTINGS);
+    let clock = 1700000000000;
+    const session = new WorkoutSession({ settings, plan: buildPlan(settings), now: () => clock, timeScale });
+    session.start();
+    session.dispose();
+    clock += 1250;
+    session.pause();
+    assert.equal(session.engine.elapsedMs, 1250 * timeScale);
+    const samples = session.samples.length;
+    clock += 30000;
+    session.resume();
+    assert.equal(session.engine.elapsedMs, 1250 * timeScale);
+    assert.equal(session.samples.length, samples);
+    clock += 1000;
+    session.tick();
+    assert.equal(session.engine.elapsedMs, 2250 * timeScale);
+  }
+});
+
+test('session: End includes running time since the previous timer tick', () => {
+  const { session, clock } = make({ sim: false });
+  clock.t += 6250;
+  session.end();
+  assert.equal(session.engine.elapsedMs, 6250);
+  assert.equal(session.toRecord().phases[0].endSec, 6.25);
+  assert.equal(session.samples.length, 7);
+});
+
+test('session: Skip logs the actual tap time before entering the next phase', () => {
+  const { session, clock } = make({ sim: false });
+  clock.t += 1250;
+  session.skip();
+  assert.equal(session.engine.phaseLog[0].endSec, 1.25);
+  assert.equal(session.engine.phaseLog[0].end, 'skipped');
+  assert.equal(session.engine.phaseElapsedMs, 0);
+  clock.t += 750;
+  session.tick();
+  assert.equal(session.engine.elapsedMs, 2000);
+  assert.equal(session.engine.phaseElapsedMs, 750);
+});
+
+test('session: a late Skip tap does not skip a phase that just started naturally', () => {
+  const settings = clone(DEFAULT_SETTINGS);
+  settings.structure.warmupSec = 1;
+  let clock = 1700000000000;
+  const session = new WorkoutSession({ settings, plan: buildPlan(settings), now: () => clock });
+  session.start();
+  session.dispose();
+  clock += 1250;
+  session.skip();
+  assert.equal(session.engine.phase.type, 'interval');
+  assert.equal(session.engine.phaseElapsedMs, 250);
+  assert.equal(session.engine.phaseLog[0].end, 'done');
+  assert.equal(session.engine.phaseLog.length, 2);
+});
+
+test('session: pause cannot overwrite a natural finish while catching up the clock', () => {
+  const settings = clone(DEFAULT_SETTINGS);
+  Object.assign(settings.structure, { warmupSec: 0, intervals: 1, intervalSec: 1, cooldownSec: 0 });
+  let clock = 1700000000000;
+  const session = new WorkoutSession({ settings, plan: buildPlan(settings), now: () => clock });
+  session.start();
+  session.dispose();
+  const states = [];
+  session.on('state', ({ state }) => states.push(state));
+  clock += 1250;
+  session.pause();
+  assert.equal(session.state, 'finished');
+  assert.equal(session.engine.finishReason, 'completed');
+  assert.deepEqual(states, ['finished']);
+});
+
 // A session driven by a fake clock; the real timer is stopped right after start().
 function make({ sim = true, timeScale = 1 } = {}) {
   const settings = clone(DEFAULT_SETTINGS);

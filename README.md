@@ -129,6 +129,7 @@ When you add a new file, also add it to the `ASSETS` list in `sw.js` and bump `V
 ## Data, history and statistics
 
 - Every workout is stored in IndexedDB in the browser: heart rate at 1 Hz, phases, every logged treadmill change, RPE and a note.
+- Strap readings keep their real timestamps when a delayed browser timer catches up. A new reading is never copied into earlier seconds; gaps without a recent reading remain missing data.
 - The running workout is saved every 5 s and on every change. After a reload or crash, Fjord offers to **resume** it (paused at the same point), **save** it as it is, or discard it.
 - Workouts shorter than one minute are not saved.
 - **Workout detail:** HR chart with zone bands and phase markers; per interval avg/max HR, time in zone, time to reach the zone, avg speed/incline, % HRmax over the last 2 min; per phase avg/min/max HR and the HR drop 1 min after each interval.
@@ -148,4 +149,4 @@ When you add a new file, also add it to the `ASSETS` list in `sw.js` and bump `V
 - On screens that are tall enough, a small chart shows the last 3 minutes of heart rate against the zone band.
 - **Screen on:** Fjord uses the Screen Wake Lock API. Where the browser has none (in-app browsers on iPhone), it plays a tiny silent video off-screen instead, which keeps the display awake. On iOS that video can pause music playing in another app.
 - **Export TCX** on the summary screen saves the workout (heart rate, laps per phase, distance and climb from the logged treadmill settings) as a `.tcx` file that Strava and Garmin Connect import. On a phone it opens the share sheet.
-- The timer follows the wall clock, so it keeps running if the browser is in the background.
+- The timer follows the wall clock, so it keeps running if the browser is in the background. Paused time is excluded even when browser timers are suspended. Pause, Skip and End first settle the time since the last timer tick; a late Skip cannot also discard a phase that just started naturally.
