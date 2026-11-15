@@ -12,10 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/home.jpg" width="200" alt="Home screen: next workout, interval target and VO2max">
-  <img src="docs/screenshots/workout.jpg" width="200" alt="During a workout: heart rate dial, timer and treadmill settings">
-  <img src="docs/screenshots/summary.jpg" width="200" alt="After a workout: summary, VO2max and advice for next time">
-  <img src="docs/screenshots/progress.jpg" width="200" alt="Progress: workouts, streaks and VO2max over time">
+  <img src="docs/screenshots/fjord.jpg" width="880" alt="Fjord screens: home with the next workout and VO2max, a workout in the heart-rate zone, the summary after a workout, and progress over time">
 </p>
 
 ## What is 4×4?
