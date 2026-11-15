@@ -441,6 +441,15 @@ export const STRINGS = {
     'common.saved': 'Spremljeno: {name}.',
     'common.on': 'Uključeno',
     'common.off': 'Isključeno',
+    'set.group.you': 'Ti',
+    'set.group.workouts': 'Treninzi',
+    'set.group.app': 'Aplikacija',
+    'set.plan': 'Aktivnost i plan',
+    'set.notSet': 'Nije postavljeno',
+    'set.ageValue': '{n} god.',
+    'set.coachOn': 'Prijedlozi uključeni',
+    'set.coachOff': 'Prijedlozi isključeni',
+    'set.dataSummary': 'Sigurnosna kopija, uvoz, CSV',
   },
 
   en: {
@@ -882,6 +891,15 @@ export const STRINGS = {
     'common.saved': 'Saved {name}.',
     'common.on': 'On',
     'common.off': 'Off',
+    'set.group.you': 'You',
+    'set.group.workouts': 'Workouts',
+    'set.group.app': 'App',
+    'set.plan': 'Activity and plan',
+    'set.notSet': 'Not set',
+    'set.ageValue': 'age {n}',
+    'set.coachOn': 'Suggestions on',
+    'set.coachOff': 'Suggestions off',
+    'set.dataSummary': 'Backup, import, CSV',
   },
 };
 

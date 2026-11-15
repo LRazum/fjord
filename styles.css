@@ -2527,8 +2527,12 @@ body.in-workout .toast {
   .btn,
   .act-btn,
   .tm-btn,
-  .hist-item {
+  .hist-item,
+  .set-row,
+  .set-in,
+  .set-back {
     transition: none;
+    animation: none;
   }
 }
 
@@ -2629,4 +2633,185 @@ body.in-workout .toast {
 
 .vo2-empty {
   margin: 0;
+}
+
+/* ---------- Settings menu ---------- */
+
+/* Grouped glass lists, one row per subpage: a tinted icon, the title and what is set now. */
+.set-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.set-group-title {
+  margin: 6px 0 0 18px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.set-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--glass);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+
+.set-list::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+
+.set-row {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 14px 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 0.15s ease;
+}
+
+/* Hairline between rows, starting after the icon like a native grouped list. */
+.set-row + .set-row::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 66px;
+  right: 0;
+  height: 1px;
+  background: var(--line);
+}
+
+.set-row:active {
+  background: var(--glass-press);
+}
+
+.set-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r-xl);
+}
+
+.set-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  color: #fff;
+  background: linear-gradient(145deg, var(--c1), var(--c2));
+  box-shadow: 0 6px 16px -6px var(--c2), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.set-ico svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ico-heart { --c1: #ff7a8a; --c2: #e0284f; }
+.ico-profile { --c1: #b993ff; --c2: #7445e0; }
+.ico-device { --c1: #4fe0d0; --c2: #0d8f8a; }
+.ico-plan { --c1: #7fb4ff; --c2: #2b62e8; }
+.ico-structure { --c1: #8d9bff; --c2: #4b49d6; }
+.ico-zones { --c1: #7ff0b0; --c2: #189a63; }
+.ico-adjust { --c1: #ffd27a; --c2: #e08a12; }
+.ico-language { --c1: #8fd8ff; --c2: #1f8fd1; }
+.ico-data { --c1: #a8b4cc; --c2: #56627d; }
+.ico-onboarding { --c1: #c7cddc; --c2: #6b7488; }
+
+.set-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.set-row-title {
+  font-weight: 620;
+  font-size: 1rem;
+}
+
+.set-row-sub {
+  color: var(--muted);
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.set-chev {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.set-foot {
+  text-align: center;
+  margin: 4px 12px 8px;
+}
+
+/* Pages slide a little when moving between the menu and a subpage, so it reads as navigation. */
+#screen-settings {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.set-in {
+  animation: set-slide 0.22s ease-out;
+}
+
+.set-back {
+  --from: -14px;
+  animation: set-slide 0.22s ease-out;
+}
+
+@keyframes set-slide {
+  from {
+    opacity: 0;
+    transform: translateX(var(--from, 14px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }

@@ -129,7 +129,7 @@ function showHome() {
     nav(to) {
       if (to === 'history') showHistory();
       else if (to === 'progress') showProgress();
-      else if (to === 'settings') showSettings();
+      else if (to === 'settings') showSettings('menu');
     },
     setDev(key, value) {
       app.settings.dev[key] = value;
@@ -175,7 +175,7 @@ async function startWorkout(kind = 'workout') {
         { value: null, label: t('wo.cancel') },
       ],
     });
-    if (choice === 'settings') showSettings();
+    if (choice === 'settings') showSettings('heart');
     if (choice !== 'test') return;
     kind = 'maxTest';
   }
@@ -408,8 +408,10 @@ async function showProgress() {
 
 // ---------- settings, backup ----------
 
-function showSettings() {
+/** page: a Settings subpage to open ('menu' for the list); omitted keeps the open one. */
+function showSettings(page) {
   renderSettings(screens.settings, app.settings, {
+    page,
     storage: app.storage,
     onBack: showHome,
     onChange(path, value) {
