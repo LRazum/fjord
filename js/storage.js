@@ -174,6 +174,20 @@ async function kvDelete(key) {
   await done(tx);
 }
 
+/** Delete every workout and stored value (the in-progress snapshot included). */
+export async function clearAll() {
+  const db = await openDb();
+  if (!db) {
+    memory.workouts.clear();
+    memory.kv.clear();
+    return;
+  }
+  const tx = db.transaction(['workouts', 'kv'], 'readwrite');
+  tx.objectStore('workouts').clear();
+  tx.objectStore('kv').clear();
+  await done(tx);
+}
+
 export const saveCurrent = (snapshot) => kvPut('current', snapshot);
 export const loadCurrent = () => kvGet('current');
 export const clearCurrent = () => kvDelete('current');

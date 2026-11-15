@@ -125,6 +125,14 @@ export function saveSettings(settings) {
   }
 }
 
+export function clearSettings() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch (_) {
+    // Nothing stored or storage blocked: either way there is nothing left to remove.
+  }
+}
+
 /** 208 − 0.7 × age (Tanaka). */
 export function estimateMaxHr(age) {
   return Math.round(208 - 0.7 * age);

@@ -13,7 +13,7 @@ const heartDone = (d) => hasMaxHr(d) || maxHrTestPending(d);
 
 /**
  * First-launch setup. Works on a draft copy of the settings; nothing is saved until
- * the last step. ctx: { btSupported, onLang(lang), onFinish(draft), onSkip?() }
+ * the last step. ctx: { btSupported, onLang(lang), onFinish(draft), importBackup?(file), onSkip?() }
  */
 export function renderOnboarding(root, draft, ctx, step = 0) {
   const name = STEPS[step];
@@ -34,7 +34,13 @@ export function renderOnboarding(root, draft, ctx, step = 0) {
           (l) => `<button class="seg-btn${l === getLang() ? ' is-on' : ''}" data-action="lang" data-value="${l}">${esc(t('lang.' + l))}</button>`,
         ).join('')}</div>
       </div>
-      ${ctx.btSupported ? '' : `<p class="note">${esc(t('home.noBluetooth'))}</p>`}`;
+      ${ctx.btSupported ? '' : `<p class="note">${esc(t('home.noBluetooth'))}</p>`}
+      ${ctx.importBackup ? `<div class="onb-import">
+        <p class="muted small">${esc(t('onb.importText'))}</p>
+        <label class="btn btn-block file-btn">${esc(t('set.importBackup'))}
+          <input type="file" accept="application/json,.json" data-action="import" hidden>
+        </label>
+      </div>` : ''}`;
   } else if (name === 'strap') {
     body = `<h1>${esc(t('onb.strapTitle'))}</h1><p>${esc(t('onb.strapText'))}</p>${strapFields(draft)}`;
   } else if (name === 'heart') {
@@ -66,6 +72,13 @@ export function renderOnboarding(root, draft, ctx, step = 0) {
     if (!updateHeartRateSettings(draft, path, value) && !updateDeviceSettings(draft, path, value)) setPath(draft, path, value);
     if (RERENDER_PATHS.includes(path)) renderOnboarding(root, draft, ctx, step);
   });
+
+  root.onchange = (e) => {
+    if (e.target.dataset.action === 'import' && e.target.files && e.target.files[0] && ctx.importBackup) {
+      ctx.importBackup(e.target.files[0]);
+      e.target.value = '';
+    }
+  };
 
   root.onclick = (e) => {
     const b = e.target.closest('[data-action]');

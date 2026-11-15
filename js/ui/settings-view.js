@@ -122,6 +122,7 @@ const ICONS = {
   language: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 3 2.6 14 0 17M12 3.5c-2.6 3-2.6 14 0 17"/>',
   data: '<ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8"/>',
   onboarding: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v4h-4"/>',
+  reset: '<path d="M4.5 7h15M10 4h4M6.5 7l.8 12.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v6M14 11v6"/>',
 };
 
 const svg = (body, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
@@ -181,8 +182,8 @@ function summary(id, s) {
   }
 }
 
-const row = (id, title, sub, action = 'page') => `
-      <button type="button" class="set-row" data-action="${action}" data-page="${id}">
+const row = (id, title, sub, action = 'page', cls = '') => `
+      <button type="button" class="set-row${cls}" data-action="${action}" data-page="${id}">
         <span class="set-ico ico-${id}">${svg(ICONS[id])}</span>
         <span class="set-row-text">
           <span class="set-row-title">${esc(title)}</span>
@@ -204,7 +205,8 @@ function menuHtml(s) {
   return `
       ${group('you')}
       ${group('workouts')}
-      ${group('app', row('onboarding', t('set.runOnboarding'), '', 'onboarding'))}
+      ${group('app', row('onboarding', t('set.runOnboarding'), t('set.runOnboardingSub'), 'onboarding')
+        + row('reset', t('set.deleteAll'), t('set.deleteAllSub'), 'reset', ' set-row-danger'))}
 
       <section class="card card-support">
         <h2>${esc(t('set.support'))}</h2>
@@ -278,7 +280,8 @@ function pageHtml(id, s, ctx) {
             <input type="file" accept="application/json,.json" data-action="import" hidden>
           </label>
           <button class="btn btn-block" data-action="csv">${esc(t('hist.exportCsv'))}</button>
-        </div>`);
+        </div>
+        <p class="muted small">${esc(t('set.importHint'))}</p>`);
     }
     default:
       return '';
@@ -292,7 +295,7 @@ let menuY = 0;
 /**
  * Settings is a menu of grouped rows; each row opens a short subpage.
  * ctx: { storage, page?, onBack(), onChange(path, value), onLang(lang), exportBackup(), importBackup(file),
- *        exportCsv(), onboarding(), startTest() }
+ *        exportCsv(), onboarding(), deleteAll(), startTest() }
  * ctx.page opens that subpage ('menu' for the list); without it the last open page is kept.
  */
 export function renderSettings(root, s, ctx) {
@@ -331,6 +334,7 @@ export function renderSettings(root, s, ctx) {
     else if (a === 'backup') ctx.exportBackup();
     else if (a === 'csv') ctx.exportCsv();
     else if (a === 'onboarding') ctx.onboarding();
+    else if (a === 'reset' && ctx.deleteAll) ctx.deleteAll();
     else if (a === 'max-test' && ctx.startTest) ctx.startTest();
   };
   root.onchange = (e) => {

@@ -2751,6 +2751,11 @@ body.in-workout .toast {
 .ico-language { --c1: #8fd8ff; --c2: #1f8fd1; }
 .ico-data { --c1: #a8b4cc; --c2: #56627d; }
 .ico-onboarding { --c1: #c7cddc; --c2: #6b7488; }
+.ico-reset { --c1: #ff8a7a; --c2: #d6332b; }
+
+.set-row-danger .set-row-title {
+  color: #ff9b9b;
+}
 
 .set-row-text {
   flex: 1;
@@ -2783,6 +2788,16 @@ body.in-workout .toast {
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.onb-import {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.onb-import p {
+  margin: 0 0 10px;
 }
 
 .set-foot {

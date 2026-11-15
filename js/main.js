@@ -1,7 +1,7 @@
 // App entry point: wires settings, screens, storage, the workout session and the HR source.
 
 import { t, setLang } from './i18n.js';
-import { loadSettings, saveSettings, clone, hasMaxHr, updateHeartRateSettings, simMaxHr, applyMaxHrTest } from './settings.js';
+import { loadSettings, saveSettings, clearSettings, clone, hasMaxHr, updateHeartRateSettings, simMaxHr, applyMaxHrTest } from './settings.js';
 import { buildPlan, buildTestPlan } from './workout.js';
 import { activityOf, phaseTargets, targetsPath } from './activities.js';
 import { updateDeviceSettings } from './straps.js';
@@ -441,6 +441,7 @@ function showSettings(page) {
     importBackup,
     exportCsv,
     onboarding: () => showOnboarding(),
+    deleteAll: deleteAllData,
     startTest: () => startWorkout('maxTest'),
   });
   showScreen('settings');
@@ -460,6 +461,7 @@ async function exportBackup() {
   const name = `fjord-backup-${today()}.json`;
   const how = await saveFile(name, 'application/json', JSON.stringify(data));
   if (how === 'downloaded') toast(t('common.saved', { name }));
+  return how;
 }
 
 async function exportCsv() {
@@ -469,7 +471,8 @@ async function exportCsv() {
   if (how === 'downloaded') toast(t('common.saved', { name }));
 }
 
-async function importBackup(file) {
+/** after(parsed): where to go once imported; Settings by default. */
+async function importBackup(file, after = () => showSettings()) {
   let parsed;
   try {
     parsed = parseBackup(await file.text());
@@ -495,7 +498,57 @@ async function importBackup(file) {
     applyLang();
   }
   toast(t('backup.imported', { added: res.added, existing: res.existing }), 6000);
-  showSettings();
+  after(parsed);
+}
+
+/** Wipe workouts and settings after a warning; exporting a backup first is offered, not forced. */
+async function deleteAllData() {
+  const choice = await choiceDialog({
+    title: t('reset.title'),
+    text: t('reset.text'),
+    choices: [
+      { value: 'export', label: t('reset.exportFirst'), kind: 'primary' },
+      { value: 'delete', label: t('reset.deleteNow'), kind: 'danger' },
+      { value: null, label: t('wo.cancel') },
+    ],
+  });
+  if (!choice) return;
+  if (choice === 'export') {
+    let how = null;
+    try {
+      how = await exportBackup();
+    } catch (_) {
+      how = null;
+    }
+    // A cancelled share sheet or a failed export means there is no backup: delete nothing.
+    if (how !== 'shared' && how !== 'downloaded') {
+      toast(t('reset.notExported'), 6000);
+      return;
+    }
+    const ok = await confirmDialog({
+      title: t('reset.confirmTitle'),
+      text: t('reset.confirmText'),
+      yes: t('reset.delete'),
+      no: t('wo.cancel'),
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  const lang = app.settings.lang;
+  try {
+    await store.clearAll();
+  } catch (_) {
+    toast(t('reset.failed'), 6000);
+    return;
+  }
+  clearSettings();
+  // Keep only the language, so the fresh setup is not suddenly in another one.
+  app.settings = { ...loadSettings(), lang };
+  persist();
+  applyLang();
+  await refreshModels();
+  toast(t('reset.done'));
+  showOnboarding();
 }
 
 // ---------- onboarding ----------
@@ -508,6 +561,11 @@ function showOnboarding() {
       app.settings.lang = lang;
       applyLang();
     },
+    importBackup: (file) =>
+      importBackup(file, (parsed) => {
+        // A backup with settings replaces the setup; one without them just adds the workouts.
+        if (parsed.settings) showHome();
+      }),
     onFinish(done) {
       app.settings = { ...done, onboarded: true };
       persist();
