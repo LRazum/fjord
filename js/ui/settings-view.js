@@ -6,6 +6,8 @@ import { strapById, devicesOfKind, deviceFallbackKey } from '../straps.js';
 import { ACTIVITIES, activityOf, phaseTargets, targetsPath } from '../activities.js';
 import { backHeader, activityName, fmtDate } from './views-common.js';
 
+const TIP_URL = 'https://revolut.me/lovrorazum';
+
 const PHASES = ['warmup', 'interval', 'recovery', 'cooldown'];
 
 /** Paths whose change alters which fields are shown, so the form is drawn again. */
@@ -198,6 +200,12 @@ export function renderSettings(root, s, ctx) {
           </label>
           <button class="btn btn-block" data-action="csv">${esc(t('hist.exportCsv'))}</button>
         </div>
+      </section>
+
+      <section class="card card-support">
+        <h2>${esc(t('set.support'))}</h2>
+        <p class="muted">${esc(t('set.supportText'))}</p>
+        <a class="btn btn-block btn-tip" href="${TIP_URL}" target="_blank" rel="noopener">${esc(t('set.supportBtn'))}</a>
       </section>
 
       <section class="card">

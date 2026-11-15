@@ -288,6 +288,36 @@ button {
   width: 100%;
 }
 
+a.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+/* Support card: a soft blue glow and a Revolut-blue tip button. */
+.card-support {
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(80, 130, 255, 0.28), transparent 60%),
+    radial-gradient(90% 80% at 0% 100%, rgba(170, 110, 255, 0.18), transparent 65%),
+    var(--glass);
+}
+
+.card-support p {
+  margin: 0 0 1rem;
+}
+
+.btn-tip {
+  background: linear-gradient(135deg, #2b7bff, #0a4fe0);
+  border-color: rgba(160, 200, 255, 0.35);
+  color: #fff;
+  box-shadow: 0 10px 26px rgba(20, 80, 230, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.btn-tip:active {
+  background: linear-gradient(135deg, #2468e0, #083fb8);
+}
+
 .btn-link {
   background: none;
   border: 0;
