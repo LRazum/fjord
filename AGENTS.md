@@ -65,6 +65,7 @@ js/
   activities.js       ACTIVITIES (treadmill, bike, stepmill, rower, run, ride) and their machine controls
   storage.js          IndexedDB 'fjord': stores 'workouts' (keyPath id) and 'kv' ('current' snapshot)
   stats.js            workoutStats, recommendNext, progress (weekly), weekKey, flatEquivalentSpeed
+  estimate.js         buildModels (history per activity), estimateInterval, plannedSettings, warmupCheck
   backup.js           sessionsCsv, samplesCsv, makeBackup, parseBackup
   export.js           toTcx (Strava/Garmin), trackSeries, exportBaseName
   charts.js           chart geometry only (live strip, workout chart, weekly trend, niceTicks)
@@ -103,7 +104,7 @@ tests/                node:test suites; helpers.js builds synthetic workout reco
 **WorkoutCoach** is owned by `WorkoutSession`. It uses workout seconds, 5 s smoothed HR, the 18 s trend, and the current phase. A deviation beyond the zone by more than 1 percentage point must persist for 20 s. No increases in the first 90 s of an interval (60 s of warm-up), during recovery/cool-down, or while the trend is already heading into the zone. No suggestions in the first/last 30 s of a phase, on pause, without a configured HRmax, with stale/missing HR, disconnection, or no skin contact. Steps are capped at 0.5 km/h or 0.5 percentage points of incline; `both` alternates one control at a time. Confirm/Skip/manual adjustment defers proposals for 60 s. `confirmSuggestion(id)` rechecks the clock, phase and signal, then logs a user change. Suggestions are transient and are not stored in snapshots or records.
 
 **Workout record** (stored in IndexedDB, exported in backups):
-`{ id, startedAt, endedAt, durationSec, finishReason, source:'sim'|'ble', timeScale, settings, plan, phases:[{i,type,index,startSec,endSec,plannedSec,end:'done'|'skipped'|'ended'}], samples, treadmillLog, finalTargets, activity?, kind?:'workout'|'maxTest', peakHr?, rpe?, note?, strapName? }`. Records without `activity` are treadmill workouts (`activityOf(rec.settings)`).
+`{ id, startedAt, endedAt, durationSec, finishReason, source:'sim'|'ble', timeScale, settings, plan, phases:[{i,type,index,startSec,endSec,plannedSec,end:'done'|'skipped'|'ended'}], samples, treadmillLog, finalTargets, activity?, kind?:'workout'|'maxTest', peakHr?, rpe?, note?, strapName?, estimate?:{values,key,n,sim}, warmupCheck?:{action,hr,expected,delta,calibrated,key?,from?,to?,outcome:'accepted'|'skipped'|'expired'|null} }`. Records without `activity` are treadmill workouts (`activityOf(rec.settings)`).
 If you change this shape, keep old records readable and keep `parseBackup` and `BACKUP_FORMAT` in step.
 
 **Settings**:
@@ -111,7 +112,9 @@ If you change this shape, keep old records readable and keep `parseBackup` and `
 - Adjusting: `adjustPref` (`'speed'` = first control, `'incline'` = second, `'both'`), `speedStep`, `inclineStep` (treadmill only).
 - Plan: `structure.{warmupSec,intervals,intervalSec,recoverySec,cooldownSec}`, `zones.{phase}:[lo,hi]` in % HRmax, `treadmill.{phase}:{speed,incline}`, `targets.{bike,stepmill,rower}.{phase}:{...}`.
 - Developer: `dev.{timeScale,simProfile}`.
-- Live suggestions: `coachingEnabled` (defaults to true). `maxHrSource` is explicitly chosen as `known` or `age`; `hasMaxHr` rejects the initial fallback and age mode without a valid age. Profile updates use `updateHeartRateSettings`; age estimates are labelled and update with age. Starting a new workout requires a configured HRmax; older saved workouts remain readable.
+- Live suggestions: `coachingEnabled` (defaults to true).
+- Automatic plan: `intervalPlan` (`'auto'` default | `'manual'`) and `warmupCheck` (defaults to true); see below.
+- Profile for VO2max: `sex` (`'male'|'female'|null`), `weightKg` (null; only the bike and rower need it). `age` is shared with the age-based HRmax estimate. `maxHrSource` is explicitly chosen as `known` or `age`; `hasMaxHr` rejects the initial fallback and age mode without a valid age. Profile updates use `updateHeartRateSettings`; age estimates are labelled and update with age. Starting a new workout requires a configured HRmax; older saved workouts remain readable.
 
 New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old saved settings. Bump `version` only when a migration is needed (see `loadSettings`).
 
@@ -124,6 +127,22 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
   - The step is ±0.5 km/h for speed, ±1 % for incline, and ±0.5 km/h plus ±0.5 % for both.
   - It starts from `finalTargets.interval`.
   - It changes `settings.treadmill.interval` only through explicit acceptance, for both strap and simulator workouts. Keep current plan leaves settings untouched. An unset HRmax returns `action: 'none', reason: 'maxHr'`.
+
+**Automatic interval target** (`estimate.js`): %HRR ≈ %VO2R, with oxygen cost from the simulator's `vo2Machine`. Each counted interval's last 2 min gives a capacity `3.5 + (cost − 3.5) / HRR fraction`; `buildModels` takes the median over the last 5 workouts per activity within 8 weeks (real workouts only when any exist; max tests excluded) plus the median interval/warm-up capacity ratio. With `intervalPlan: 'auto'` and at least 2 workouts, `plannedSettings` returns a copy of the settings whose interval target is solved for mid-zone on the preferred control (snapped to `setStep`); the saved manual plan is never overwritten and the post-workout Apply buttons are replaced by the next estimate. `main.js` keeps `app.models` fresh after every save, delete and import.
+
+**Warm-up check:** from 75 s to 20 s before the warm-up ends, once HR has been at one setting for 120 s with a slope ≤ 4 bpm/min, `warmupCheck` compares the 2-min mean HR with what the planned interval implies (calibrated by the history ratio). ≥ 4 bpm (≥ 6 without a calibrated history) offers a target for today's intervals, at most two `nextStep`s. Accepting changes `session.targets.interval` only; an unanswered offer expires at the next phase; snapshots keep only that the check ran.
+
+**VO2max** (`estimate.js`): `vo2maxOf(rec, kg, restHr)` is the median interval capacity of one workout (the same %HRR ≈ %VO2R model; `vo2Machine` takes body mass, so bike and rower need `weightKg`, stored with the workout or taken from the profile; the profile resting HR fills in for workouts saved without one). `currentVo2max` takes the median of the last 5 workouts of an activity within 8 weeks (≥ 2), `vo2maxByWeek` feeds the Progress chart. `vo2Rating(value, age, sex)` uses `VO2_NORMS` (The Cooper Institute table published by Garmin: lower bounds of superior/excellent/good/fair per decade 20–79, nearest band outside it) and returns the level and a 0–1 position for the five-segment scale drawn by `vo2Html` in `ui/views-common.js`.
+
+## Design
+
+Liquid glass over a living aurora, dark only. Tokens live on `:root` in `styles.css`.
+- **Background:** `body::before` (and `::before` of the Ready and workout screens) paints three drifting radial lights from `--a1..--a3`. On the workout screen `data-zone` swaps them to blue (below), green (in) or red (above), transitioned through `@property`, because the zone must read at a glance. The page colour sits on `html` only; a `body` background would cover the aurora.
+- **Glass:** cards, tiles, list items, the nav pill, dialogs and the workout panels use `backdrop-filter: var(--blur)` over a translucent fill, plus a 1px specular rim (`::before` with `--rim`, masked to the border). Nested controls inside a glass card use plain translucent fills, not another blur.
+- **Controls:** pill buttons; primary actions and selected options are near-white with dark ink (`--ink`). Steppers are a pill track with round buttons.
+- **Type:** system text (SF on iPhone); numbers use `--num` (`ui-rounded`, SF Rounded) bold and tabular.
+- **Workout dial:** an SVG ring around the heart rate maps 50–100 % HRmax to 260°. The fill and marker follow the 5 s smoothed HR; the target zone is a separate thinner arc just outside the ring so the fill never hides it. The dial is hidden for the max test, with a suggestion card, and on short screens (portrait under 600 px, landscape under 360 px). The live HR strip shows only in portrait from 900 px tall.
+- No emoji, no hard-coded UI text; respect `prefers-reduced-motion` (aurora and transitions stop).
 
 ## Conventions
 
@@ -152,7 +171,7 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 | 5 | Onboarding, settings, JSON backup/import, CSV, TCX, live HR strip, zone in bpm, screen-on video fallback | done |
 | 6 | Watches as HR source, max HR field test, gym bike / stepmill / rower / outdoor run and ride | done; watches **not yet tried with a real device** |
 
-176 tests pass. Milestone 6 was checked in the browser with the simulator: onboarding (watch, test, bike), the max test at 1×-clock fast-forward through to accepting the result, an outdoor run with a suggestion card at 568×320, and a stepmill at 320×480. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips. Session tests cover unticked pauses, precise End/Skip timestamps, natural phase/finish boundaries and timestamped HR catch-up without fabricated data. The live strip grows from a labelled 30-second window to the last three minutes.
+196 tests pass. Milestone 6 was checked in the browser with the simulator: onboarding (watch, test, bike), the max test at 1×-clock fast-forward through to accepting the result, an outdoor run with a suggestion card at 568×320, and a stepmill at 320×480. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips. Session tests cover unticked pauses, precise End/Skip timestamps, natural phase/finish boundaries and timestamped HR catch-up without fabricated data. The live strip grows from a labelled 30-second window to the last three minutes.
 
 ## Known gaps and open items
 

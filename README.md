@@ -40,7 +40,7 @@ Firefox notes:
 
 ## Tests
 
-The pure modules (`workout.js`, `session.js`, `ready.js`, `coaching.js`, `settings.js`, `hrmath.js`, `hrparse.js`, `ble.js`, `simulator.js`, `stats.js`, `backup.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
+The pure modules (`workout.js`, `session.js`, `ready.js`, `coaching.js`, `settings.js`, `hrmath.js`, `hrparse.js`, `ble.js`, `simulator.js`, `stats.js`, `estimate.js`, `backup.js`, `charts.js`, `export.js`) have unit tests in `tests/`, written with `node:test`. They need Node 18 or newer:
 
 ```bash
 sudo apt install nodejs
@@ -107,6 +107,7 @@ js/
   hrparse.js        Heart Rate Measurement (0x2A37) parser (pure)
   storage.js        IndexedDB: workouts + in-progress snapshot
   stats.js          per-workout stats, weekly progress, recommendations (pure)
+  estimate.js       interval target from past workouts, warm-up check (pure)
   backup.js         CSV export, JSON backup/restore (pure)
   straps.js         tested strap models and tips
   charts.js         chart geometry (pure, no DOM)
@@ -156,6 +157,9 @@ If you don't know your maximum heart rate, choose *I do not know — test it* (o
 - **Progress:** per week, speed at 90 % HRmax (flat-equivalent speed from the last 2 min of each interval, scaled to 90 % HRmax: going up means getting fitter), interval HR, time in zone, speed and incline; total workouts, week streaks.
 - **Maximum heart rate:** choose a known maximum or an age estimate (`208 − 0.7 × age`) in onboarding or Settings. Estimated values are labelled on Home, Ready and the workout screen. The initial 190 is a fallback, not a personal value: choose a source before starting a new workout. An age estimate can differ from your actual maximum.
 - **Next session:** if HR in the last 2 min of the intervals stayed below the zone, the suggested next interval target goes up (speed, incline or both, by your preference); above the zone, it goes down. Every workout offers **Use for next workout** and **Keep current plan**. Only accepting changes the saved plan. No recommendation is made with an unset HRmax.
+- **Automatic interval target** (*Settings → Plan → Interval target: Estimate from workouts*, the default): once there are 2 recent workouts of the activity with full intervals, the interval target is estimated from the last 2 min of each interval in the last 5 workouts (within 8 weeks). Each gives the athlete's capacity from the machine setting's oxygen cost (the simulator's ACSM equations) and the fraction of heart-rate reserve it took (%HRR ≈ %VO2R); the median capacity is turned back into the setting that lands mid-zone, changing the control you prefer to adjust. Home marks the estimated target with *. The saved manual plan stays as the fallback and is not overwritten; warm-up, recovery and cool-down always use it. Simulated workouts count only while there are no real ones. With the manual mode, the post-workout recommendation works as before.
+- **Warm-up check** (on by default): 75 s before the warm-up ends, if HR has been steady at one setting for 2 min, Fjord compares it with the HR the planned interval target implies, calibrated by the usual warm-up/interval ratio from the history. A difference of 4 bpm or more (6 without history) offers today's interval target (at most two recommendation steps) with **Use today** / **Skip**. Only this workout changes; an unanswered offer expires when the intervals start. The result is kept in the workout record.
+- **VO2max estimate:** from the last 2 min of each interval: the oxygen cost of the machine setting (the ACSM equations the simulator uses) against the share of your heart-rate reserve, extrapolated to HRmax. Shown on Home and Progress (median of the last 5 workouts of the activity within 8 weeks, from 2 workouts on), per workout on the summary, and as a weekly chart. With age and sex in *Settings → Profile* it is rated against The Cooper Institute norms (poor, fair, good, excellent, superior) as published by Garmin. Bike and rower values need body weight. It is an estimate, not a lab test: it reads a little low (cardiac drift), bike values sit below running ones, and a resting HR makes it more accurate. Nothing is estimated outdoors.
 - **Settings → Your data:** full JSON backup (export and import; import adds missing workouts and restores settings), CSV of all sessions. Each workout can also be exported as per-second CSV or TCX.
 
 ## How a workout behaves

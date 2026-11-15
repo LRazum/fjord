@@ -12,6 +12,7 @@ import { StrapConnection, bluetoothSupported } from './ble.js';
 import { keepScreenOn, releaseScreen } from './wakelock.js';
 import * as store from './storage.js';
 import { recommendNext } from './stats.js';
+import { buildModels, plannedSettings, currentVo2max, vo2maxOf } from './estimate.js';
 import { sessionsCsv, makeBackup, parseBackup } from './backup.js';
 import { fmtClock } from './format.js';
 import { showScreen, toast } from './ui/dom.js';
@@ -43,6 +44,7 @@ const app = {
   liveHrAt: -Infinity,
   includeSim: true,
   progressActivity: null,
+  models: {}, // per-activity history models for the automatic interval plan
 };
 
 const screens = {};
@@ -57,6 +59,20 @@ function applyLang() {
 function persist() {
   saveSettings(app.settings);
 }
+
+/** Rebuild the history models after workouts were added, changed or removed. */
+async function refreshModels() {
+  try {
+    app.records = await store.listWorkouts();
+    app.models = buildModels(app.records);
+  } catch (_) {
+    app.records = [];
+    app.models = {};
+  }
+}
+
+/** Settings the next workout will use (automatic interval target applied) and the estimate. */
+const planned = () => plannedSettings(app.settings, app.models);
 
 const useSimulator = () => !app.btSupported || app.settings.hrSource === 'sim';
 
@@ -98,6 +114,8 @@ function refreshStrapCard() {
 // ---------- home ----------
 
 function showHome() {
+  app.next = planned();
+  app.vo2 = currentVo2max(app.records || [], activityOf(app.settings).id, { kg: app.settings.weightKg, restHr: app.settings.restHr });
   renderHome(screens.home, app, {
     start: () => startWorkout(),
     startTest: () => startWorkout('maxTest'),
@@ -182,12 +200,13 @@ async function startWorkout(kind = 'workout') {
     }
   }
 
-  const s = app.settings;
+  const { settings: s, estimate } = kind === 'maxTest' ? { settings: app.settings, estimate: null } : planned();
   const plan = kind === 'maxTest' ? buildTestPlan(s) : buildPlan(s);
-  showReady(s, plan, sim ? makeSim(s) : null, screenOn);
+  const extra = { model: app.models[activityOf(s).id] || null, estimate };
+  showReady(s, plan, sim ? makeSim(s) : null, screenOn, extra);
 }
 
-function showReady(settings, plan, sim, screenOn) {
+function showReady(settings, plan, sim, screenOn, extra = {}) {
   const ready = new ReadySession({ sim });
   const strap = sim ? null : app.strap;
   if (strap && app.liveBpm != null) ready.pushHr(app.liveBpm, [], app.liveHrAt);
@@ -211,7 +230,7 @@ function showReady(settings, plan, sim, screenOn) {
   ready.on('finish', () => {
     const bpm = ready.snapshot().bpm;
     cleanup();
-    session = new WorkoutSession({ settings, plan, sim, timeScale: settings.dev.timeScale });
+    session = new WorkoutSession({ settings, plan, sim, timeScale: settings.dev.timeScale, ...extra });
     if (strap) {
       if (strap.battery != null) session.setBattery(strap.battery);
       if (strap.state === 'connected' && bpm != null) session.pushHr(bpm, ready.lastRr, strap.contact, ready.lastHrAt);
@@ -297,6 +316,7 @@ async function saveRecord(rec) {
   } catch (e) {
     toast(t('store.saveFailed'), 6000);
   }
+  await refreshModels();
   if (!app.askedPersist) {
     app.askedPersist = true;
     store.requestPersist().then(async () => {
@@ -316,6 +336,10 @@ function showSummary(rec) {
   const r = recommendNext(rec);
   renderSummary(screens.summary, rec, {
     recommendation: r,
+    autoPlan: app.settings.intervalPlan === 'auto' && rec.kind !== 'maxTest' && activityOf(rec.settings).controls.length > 0,
+    nextEstimate: () => planned().estimate,
+    vo2: rec.kind === 'maxTest' ? null : vo2maxOf(rec, app.settings.weightKg, app.settings.restHr),
+    profile: app.settings,
     currentMax: hasMaxHr(app.settings) ? app.settings.maxHr : null,
     onApply: () => applyRecommendation(r),
     onApplyTest(bpm) {
@@ -355,6 +379,7 @@ async function showDetail(id, from = 'history') {
     onSave: (r) => saveRecord(r),
     async onDelete(r) {
       await store.deleteWorkout(r.id);
+      await refreshModels();
       toast(t('det.deleted'));
       showHistory();
     },
@@ -372,6 +397,7 @@ async function showProgress() {
       showProgress();
     },
     includeSim: app.includeSim,
+    profile: app.settings,
     onToggleSim(v) {
       app.includeSim = v;
       showProgress();
@@ -387,7 +413,7 @@ function showSettings() {
     storage: app.storage,
     onBack: showHome,
     onChange(path, value) {
-      if (path === 'coachingEnabled') value = value === 'true';
+      if (path === 'coachingEnabled' || path === 'warmupCheck') value = value === 'true';
       if (!updateHeartRateSettings(app.settings, path, value) && !updateDeviceSettings(app.settings, path, value)) {
         setPath(app.settings, path, value);
       }
@@ -460,6 +486,7 @@ async function importBackup(file) {
   });
   if (!ok) return;
   const res = await store.addWorkouts(parsed.workouts);
+  await refreshModels();
   if (parsed.settings) {
     app.settings = { ...parsed.settings, onboarded: true };
     persist();
@@ -568,6 +595,7 @@ async function init() {
   applyLang();
   setupStrap();
   app.storage = await store.storageInfo();
+  await refreshModels();
   if (app.settings.onboarded) showHome();
   else showOnboarding();
   const current = await store.loadCurrent().catch(() => null);

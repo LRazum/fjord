@@ -9,6 +9,10 @@ import { activityOf, controlStep } from '../activities.js';
 const HOLD_DELAY_MS = 450;
 const HOLD_REPEAT_MS = 160;
 const SKIP_ARM_MS = 2500;
+// Heart-rate dial: 50–100 % HRmax over a 260° arc that opens at the bottom.
+const GAUGE_START = 140;
+const GAUGE_SWEEP = 260;
+const gaugeDeg = (pct) => Math.max(0, Math.min(GAUGE_SWEEP, ((pct - 50) / 50) * GAUGE_SWEEP));
 
 /** The full-screen workout display. Reads session snapshots, sends user actions back. */
 export class WorkoutView {
@@ -84,12 +88,22 @@ export class WorkoutView {
 
       <main class="wo-main">
         <div class="wo-countdown"><span data-f="countdown">0:00</span></div>
-        <div class="wo-bpm-wrap">
-          <div class="wo-bpm" data-f="bpm">--</div>
-          <div class="wo-bpm-unit">${esc(t('wo.bpm'))} <span class="wo-trend" data-f="trend"></span></div>
+        <div class="wo-dial">
+          <svg class="wo-gauge" viewBox="0 0 100 100" aria-hidden="true">
+            <g transform="rotate(${GAUGE_START} 50 50)">
+              <circle class="g-track" cx="50" cy="50" r="44" pathLength="360" stroke-dasharray="${GAUGE_SWEEP} 360"></circle>
+              <circle class="g-zone" data-f="gZone" cx="50" cy="50" r="50.5" pathLength="360" stroke-dasharray="0 360"></circle>
+              <circle class="g-fill" data-f="gFill" cx="50" cy="50" r="44" pathLength="360" stroke-dasharray="0 360"></circle>
+              <g class="g-mark" data-f="gMark"><circle cx="94" cy="50" r="3.6"></circle></g>
+            </g>
+          </svg>
+          <div class="wo-bpm-wrap">
+            <div class="wo-bpm" data-f="bpm">--</div>
+            <div class="wo-bpm-unit">${esc(t('wo.bpm'))} <span class="wo-trend" data-f="trend"></span></div>
+            <span class="wo-pct" data-f="pct"></span>
+          </div>
         </div>
         <div class="wo-sub">
-          <span class="wo-pct" data-f="pct"></span>
           <span class="wo-zone"><span data-f="zoneText"></span> <span class="wo-zone-pct" data-f="zonePct"></span></span>
         </div>
         <div class="wo-cue" data-f="cue" aria-live="polite"></div>
@@ -169,8 +183,12 @@ export class WorkoutView {
       else if (a === 'skip') this._skip(b);
       else if (a === 'end') this.on.requestEnd();
       else if (a === 'reconnect' && this.on.reconnect) this.on.reconnect();
-      else if (a === 'coach-accept') this.session.confirmSuggestion(Number(b.dataset.id));
-      else if (a === 'coach-skip') this.session.dismissSuggestion(Number(b.dataset.id));
+      else if (a === 'coach-accept' || a === 'coach-skip') {
+        const id = Number(b.dataset.id);
+        const plan = b.dataset.plan === 'true';
+        if (a === 'coach-accept') plan ? this.session.acceptPlanSuggestion(id) : this.session.confirmSuggestion(id);
+        else plan ? this.session.dismissPlanSuggestion(id) : this.session.dismissSuggestion(id);
+      }
     };
   }
 
@@ -245,7 +263,9 @@ export class WorkoutView {
       setText(f.zonePct, t('wo.zonePct', { lo: phase.zone[0], hi: phase.zone[1] }));
     }
     this._updateChart(s);
-    this._updateSuggestion(s.suggestion);
+    this._updateGauge(s, phase);
+    if (s.planSuggestion) this._updatePlanSuggestion(s.planSuggestion);
+    else this._updateSuggestion(s.suggestion);
     // Zone state in words too, so it does not depend on telling the colours apart.
     // A coaching cue (milestone 3) takes over this line while it is active.
     const state = this.isTest ? t('test.cue.' + (phase.effort || 'easy')) : s.zone ? t('wo.zone.' + s.zone) : '';
@@ -254,7 +274,7 @@ export class WorkoutView {
     f.progress.style.width = `${Math.min(100, (s.elapsedSec / s.totalSec) * 100).toFixed(2)}%`;
 
     f.source.hidden = s.source !== 'sim';
-    setText(f.battery, s.battery == null ? '' : `🔋 ${s.battery} %`);
+    setText(f.battery, s.battery == null ? '' : t('ready.battery', { level: s.battery }));
 
     for (const c of this.controls) {
       setText(f[c.key + 'Target'], fmtNum(s.target[c.key], c.dec));
@@ -282,9 +302,30 @@ export class WorkoutView {
     root.classList.toggle('last-seconds', s.state === 'running' && s.phaseRemainingSec <= 3.05);
   }
 
+  /** The warm-up check's proposal for this workout's interval target. */
+  _updatePlanSuggestion(p) {
+    const f = this.f;
+    f.coach.hidden = false;
+    f.coach.classList.add('is-plan');
+    this.root.classList.add('has-suggestion');
+    for (const c of this.controls) setText(f[c.key + 'Label'], t(c.targetKey));
+    const c = this.controls.find((x) => x.key === p.key);
+    setText(f.coachReason, t(p.delta > 0 ? 'warm.higher' : 'warm.lower', { hr: p.hr, delta: Math.abs(p.delta) }));
+    setText(f.coachChange, t('warm.change', { kind: t(c.labelKey),
+      from: fmtNum(p.from, c.dec), to: fmtNum(p.to, c.dec), unit: c.unitKey ? t(c.unitKey) : '' }).trim());
+    setText(f.coachAccept, t('warm.accept'));
+    for (const b of [f.coachAccept, f.coachSkip]) {
+      b.dataset.id = p.id;
+      b.dataset.plan = 'true';
+    }
+  }
+
   _updateSuggestion(p) {
     const f = this.f;
     f.coach.hidden = !p;
+    f.coach.classList.remove('is-plan');
+    setText(f.coachAccept, t('coach.accept'));
+    f.coachAccept.dataset.plan = f.coachSkip.dataset.plan = 'false';
     this.root.classList.toggle('has-suggestion', !!p);
     for (const c of this.controls) setText(f[c.key + 'Label'], t(p ? c.labelKey : c.targetKey));
     if (!p) return;
@@ -299,6 +340,26 @@ export class WorkoutView {
     }
     f.coachAccept.dataset.id = p.id;
     f.coachSkip.dataset.id = p.id;
+  }
+
+  _updateGauge(s, phase) {
+    const maxHr = this.session.settings.maxHr;
+    const pct = this.isTest || s.smooth == null ? null : (s.smooth / maxHr) * 100;
+    const zone = this.isTest ? null : phase.zone;
+    const key = `${pct == null ? '' : pct.toFixed(1)}|${zone ? zone.join('-') : ''}`;
+    if (key === this._gaugeKey) return;
+    this._gaugeKey = key;
+    const f = this.f;
+    if (zone) {
+      const lo = gaugeDeg(zone[0]);
+      const hi = gaugeDeg(zone[1]);
+      f.gZone.style.strokeDasharray = `${(hi - lo).toFixed(1)} 360`;
+      f.gZone.style.strokeDashoffset = `${(-lo).toFixed(1)}`;
+    } else f.gZone.style.strokeDasharray = '0 360';
+    const d = pct == null ? 0 : gaugeDeg(pct);
+    f.gFill.style.strokeDasharray = `${d.toFixed(1)} 360`;
+    f.gMark.style.transform = `rotate(${d.toFixed(1)}deg)`;
+    f.gMark.style.opacity = pct == null ? '0' : '1';
   }
 
   // The strip expands up to three minutes; redraw once per workout second.
