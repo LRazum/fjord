@@ -5,5 +5,6 @@
   "description": "Norwegian 4×4 treadmill intervals guided by live heart rate. No dependencies; this file only exists for `npm test`.",
   "scripts": {
     "test": "node --test tests/*.test.js"
-  }
+  },
+  "license": "MIT"
 }

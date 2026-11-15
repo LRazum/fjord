@@ -180,7 +180,7 @@ Liquid glass over a living aurora, dark only. Tokens live on `:root` in `styles.
   - Whether the silent-video fallback actually keeps the iPhone screen on.
   - Whether Strava and Garmin accept the TCX files.
 - **Publishing:**
-  - The GitHub remote is `https://github.com/LRazum/fjord.git`. The user enabled GitHub Pages from `main`, `/ (root)`; the README describes the setup.
+  - The GitHub remote is `https://github.com/LRazum/fjord.git`. The user enabled GitHub Pages from `main`, `/ (root)`; `docs/DEVELOPMENT.md` describes the setup. The README is written for users (what the app does, how to start, tips, support); keep technical detail in `docs/DEVELOPMENT.md`.
   - Do not push, create repositories or publish anything without the user's explicit approval.
 - **Small issues:**
   - When the strap disconnects there is only a banner and vibration. Sounds were part of milestone 3.
@@ -190,6 +190,6 @@ Liquid glass over a living aurora, dark only. Tokens live on `:root` in `styles.
 
 ## Working with the user
 
-- The user writes in Croatian. Answer in the language they write in, but keep code, comments, commit messages and the README in English.
+- The user writes in Croatian. Answer in the language they write in, but keep code, comments, commit messages, the README and `docs/` in English.
 - Work in small, verifiable steps: run the tests and check in Firefox before saying something is done, and say plainly what was not verified, especially anything that needs the iPhone or a real strap.
 - Commit only when asked. The branch is `main`.
