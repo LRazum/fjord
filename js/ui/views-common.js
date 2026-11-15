@@ -88,7 +88,7 @@ export function bindRpe(root, initial, onChange) {
 }
 
 /**
- * VO2max value with its Cooper Institute rating on a five-segment scale.
+ * VO2max value with its age-group rating on a five-segment scale.
  * est: { value, n?, reason? } (estimate.currentVo2max or one workout's value);
  * s: current settings (age, sex, restHr); source: line under the value, if any.
  */
