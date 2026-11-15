@@ -290,7 +290,7 @@ test('currentVo2max: median of recent workouts, needs two, nothing outdoors', as
   assert.equal(currentVo2max([], 'rower').reason, 'weight');
 });
 
-test('vo2Rating: Cooper Institute bands by age and sex', async () => {
+test('vo2Rating: bands by age and sex', async () => {
   const { vo2Rating } = await import('../js/estimate.js');
   assert.equal(vo2Rating(47, 35, 'male').level, 'good');
   assert.equal(vo2Rating(48.3, 35, 'male').level, 'excellent', 'a threshold belongs to the higher level');

@@ -331,8 +331,7 @@ export function vo2maxByWeek(records, kg = null, restHr = null) {
 }
 
 /**
- * VO2max standard ratings (ml/kg/min), The Cooper Institute, as published by Garmin.
- * Per age band 20–29 … 70–79: lower bounds of superior (95th percentile), excellent
+ * VO2max ratings (ml/kg/min) per age band 20–29 … 70–79: lower bounds of superior (95th percentile), excellent
  * (80th), good (60th) and fair (40th); below fair is poor.
  */
 export const VO2_NORMS = {
