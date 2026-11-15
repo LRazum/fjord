@@ -33,15 +33,16 @@ export function bikeWatts(level, cadence) {
 /**
  * Oxygen cost (ml/kg/min) of a logged machine setting.
  * Bike: ACSM leg cycling 7 + 10.8·W/kg. Stepmill: ACSM stepping with 20 cm steps and
- * about 20 + 7·level steps/min. Rower: about 14 ml/min per watt for a 75 kg rower.
+ * about 20 + 7·level steps/min. Rower: about 14 ml/min per watt. `kg` is body mass
+ * (75 kg when unknown); treadmill and stepmill costs do not depend on it.
  */
-export function vo2Machine(activity, v = {}) {
-  if (activity === 'bike') return 7 + (10.8 * bikeWatts(v.level, v.cadence)) / BODY_KG;
+export function vo2Machine(activity, v = {}, kg = BODY_KG) {
+  if (activity === 'bike') return 7 + (10.8 * bikeWatts(v.level, v.cadence)) / kg;
   if (activity === 'stepmill') {
     const f = 20 + 7 * Math.max(0, v.level || 0);
     return 3.5 + 0.2 * f + 1.33 * 1.8 * 0.2 * f;
   }
-  if (activity === 'rower') return 7 + (14 * Math.max(0, v.power || 0)) / BODY_KG;
+  if (activity === 'rower') return 7 + (14 * Math.max(0, v.power || 0)) / kg;
   return vo2Treadmill(v.speed, v.incline);
 }
 

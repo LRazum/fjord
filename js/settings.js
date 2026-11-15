@@ -12,6 +12,8 @@ export const DEFAULT_SETTINGS = {
   maxHrTest: null, // {bpm, at, activity} from the in-app max HR test
   age: null,
   restHr: null,
+  sex: null, // 'male' | 'female' | null: only for comparing VO2max with the norms
+  weightKg: null, // body mass: only needed for VO2max from the bike and the rower
 
   strapModel: 'other', // a STRAPS id: a chest strap or a watch broadcasting heart rate
   hrSource: 'strap', // 'strap' | 'sim' (the simulator is always used without Web Bluetooth)
@@ -21,6 +23,10 @@ export const DEFAULT_SETTINGS = {
   speedStep: 0.5,
   inclineStep: 0.5,
   coachingEnabled: true,
+  // 'auto' = interval target estimated from recent workouts (estimate.js) once there
+  // are enough; the planned values below are the fallback. 'manual' = always the plan.
+  intervalPlan: 'auto', // 'auto' | 'manual'
+  warmupCheck: true, // suggest an interval correction near the end of the warm-up
 
   // Durations in seconds.
   structure: {

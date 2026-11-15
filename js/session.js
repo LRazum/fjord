@@ -7,10 +7,13 @@ import { smoothedHr, hrTrend, pctOfMax, zoneStatus } from './hrmath.js';
 import { clone } from './settings.js';
 import { WorkoutCoach } from './coaching.js';
 import { activityOf, pickValues, sameValues, roundTo } from './activities.js';
+import { warmupCheck } from './estimate.js';
 
 const TICK_MS = 200;
 const STALE_MS = 5000; // HR older than this (real time) counts as missing
 const MERGE_USER_LOG_SEC = 4; // rapid +/- taps collapse into one log entry
+const WARM_CHECK_FROM_SEC = 75; // warm-up check: first try this long before the warm-up ends
+const WARM_CHECK_UNTIL_SEC = 20; // ...and give up this close to its end
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -38,8 +41,10 @@ export class WorkoutSession extends Emitter {
    * @param {object} o
    * @param {object} [o.restore]  a toSnapshot() result to continue from (crash recovery);
    *                              the session then starts paused and needs attach().
+   * @param {object} [o.model]    history model of this activity (estimate.js), for the warm-up check
+   * @param {object} [o.estimate] the interval estimate the plan was built from, kept in the record
    */
-  constructor({ settings, plan, sim = null, timeScale = 1, now = Date.now, restore = null }) {
+  constructor({ settings, plan, sim = null, timeScale = 1, now = Date.now, restore = null, model = null, estimate = null }) {
     super();
     this.settings = clone(settings);
     this.plan = plan;
@@ -78,6 +83,13 @@ export class WorkoutSession extends Emitter {
     this.peak = null; // highest 5 s smoothed HR so far (shown during a max test)
     this._simNudge = 0; // outdoor simulator only: accepted "faster/easier" suggestions
     this.coach = new WorkoutCoach();
+    this.model = model;
+    this.estimate = estimate;
+    // Warm-up check: one look near the end of the warm-up; its result is kept in the record.
+    const canCheck = !this.isTest && this.settings.warmupCheck !== false && this.activity.controls.length > 0
+      && plan.phases.some((p) => p.type === 'warmup') && plan.phases.some((p) => p.type === 'interval');
+    this.warmCheck = { state: canCheck ? 'pending' : 'off', result: null, outcome: null, suggestion: null };
+    this._planSuggestionId = 0;
     this.hrConnected = true;
     this.contact = null;
 
@@ -100,6 +112,10 @@ export class WorkoutSession extends Emitter {
     this.actual = { ...snap.actual };
     this.targets = clone(snap.targets);
     this._adjustedInPhase = !!snap.adjustedInPhase;
+    this.model = snap.model || null;
+    this.estimate = snap.estimate || null;
+    // A pending suggestion is never restored; a check that already ran stays done.
+    if (snap.warmCheck) this.warmCheck = { ...snap.warmCheck, suggestion: null };
     const sec = this.samples.length - 1;
     this.smooth = smoothedHr(this.samples, sec, 5);
     this.trend = hrTrend(this.samples, sec, 18);
@@ -117,6 +133,10 @@ export class WorkoutSession extends Emitter {
       if (prev && this._adjustedInPhase) this.targets[prev.type] = { ...this.actual };
       this._adjustedInPhase = false;
       this._simNudge = 0;
+      if (this.warmCheck.suggestion) {
+        this.warmCheck.suggestion = null;
+        this.warmCheck.outcome = 'expired';
+      }
       this._applyTargets(e.phase);
       // Re-evaluate against the new phase's zone right away (no hysteresis carry-over).
       this.zone = this._zoneFor(e.phase, null);
@@ -165,6 +185,9 @@ export class WorkoutSession extends Emitter {
       actual: { ...this.actual },
       targets: clone(this.targets),
       adjustedInPhase: this._adjustedInPhase,
+      model: this.model,
+      estimate: this.estimate,
+      warmCheck: { ...this.warmCheck, suggestion: null, state: this.warmCheck.state === 'offered' ? 'done' : this.warmCheck.state },
     };
   }
 
@@ -280,6 +303,53 @@ export class WorkoutSession extends Emitter {
       this.emit('tick', this.snapshot());
     }
     return true;
+  }
+
+  /** Use the warm-up check's interval target for this workout's intervals. */
+  acceptPlanSuggestion(id) {
+    const p = this.warmCheck.suggestion;
+    if (!p || p.id !== id) return false;
+    this.targets.interval = { ...this.targets.interval, [p.key]: p.to };
+    this.warmCheck.suggestion = null;
+    this.warmCheck.outcome = 'accepted';
+    this.emit('treadmill', { actual: { ...this.actual } });
+    this.emit('tick', this.snapshot());
+    return true;
+  }
+
+  dismissPlanSuggestion(id) {
+    const p = this.warmCheck.suggestion;
+    if (!p || p.id !== id) return;
+    this.warmCheck.suggestion = null;
+    this.warmCheck.outcome = 'skipped';
+    this.emit('tick', this.snapshot());
+  }
+
+  _runWarmupCheck(sec) {
+    const wc = this.warmCheck;
+    const phase = this.engine.phase;
+    if (wc.state !== 'pending' || !phase || phase.type !== 'warmup' || this.engine.state !== 'running') return;
+    const remaining = this.engine.phaseRemainingMs / 1000;
+    if (remaining > WARM_CHECK_FROM_SEC) return;
+    if (remaining < WARM_CHECK_UNTIL_SEC) {
+      wc.state = 'done';
+      return;
+    }
+    const r = warmupCheck({
+      settings: this.settings,
+      samples: this.samples,
+      log: this.treadmillLog,
+      nowSec: sec + 1,
+      warmStartSec: Math.floor(this.engine.phaseStartMs / 1000),
+      intervalTarget: this.targets.interval || {},
+      model: this.model,
+    });
+    if (r && r.action === 'wait') return;
+    wc.result = r;
+    if (r && (r.action === 'harder' || r.action === 'easier')) {
+      wc.state = 'offered';
+      wc.suggestion = { ...r, id: ++this._planSuggestionId };
+    } else wc.state = 'done';
   }
 
   dismissSuggestion(id) {
@@ -408,6 +478,7 @@ export class WorkoutSession extends Emitter {
     }
     const phase = this.engine.phase;
     if (phase) this.zone = this._zoneFor(phase, this.zone);
+    this._runWarmupCheck(sec);
     this._updateCoaching();
   }
 
@@ -475,6 +546,7 @@ export class WorkoutSession extends Emitter {
       source: this.sim ? 'sim' : 'ble',
       battery: this.battery,
       suggestion: this.coach.suggestion,
+      planSuggestion: this.warmCheck.suggestion,
       peak: this.peak,
       isTest: this.isTest,
     };
@@ -497,6 +569,8 @@ export class WorkoutSession extends Emitter {
       treadmillLog: clone(this.treadmillLog),
       finalTargets: clone(this.targets),
       activity: this.activity.id,
+      ...(this.estimate ? { estimate: clone(this.estimate) } : {}),
+      ...(this.warmCheck.result ? { warmupCheck: { ...clone(this.warmCheck.result), outcome: this.warmCheck.outcome } } : {}),
       kind: this.isTest ? 'maxTest' : 'workout',
       ...(this.isTest ? { peakHr: peakHr(this.samples) } : {}),
     };

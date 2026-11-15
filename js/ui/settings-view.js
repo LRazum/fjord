@@ -9,7 +9,7 @@ import { backHeader, activityName, fmtDate } from './views-common.js';
 const PHASES = ['warmup', 'interval', 'recovery', 'cooldown'];
 
 /** Paths whose change alters which fields are shown, so the form is drawn again. */
-export const RERENDER_PATHS = ['age', 'maxHr', 'maxHrSource', 'strapModel', 'deviceKind', 'activity'];
+export const RERENDER_PATHS = ['age', 'maxHr', 'maxHrSource', 'strapModel', 'deviceKind', 'activity', 'intervalPlan'];
 
 function hrStatus(s) {
   if (hasMaxHr(s)) {
@@ -76,6 +76,17 @@ export function targetFields(s) {
   ).join('');
 }
 
+/** Automatic interval target and the warm-up check (indoor activities only). */
+export function planFields(s) {
+  if (!activityOf(s).controls.length) return '';
+  return `${segmented({ label: t('est.mode'), path: 'intervalPlan', value: s.intervalPlan === 'manual' ? 'manual' : 'auto',
+      options: [['auto', t('est.auto')], ['manual', t('est.manual')]] })}
+    <p class="muted small">${esc(t('est.help'))}</p>
+    ${segmented({ label: t('warm.enabled'), path: 'warmupCheck', value: String(s.warmupCheck !== false),
+      options: [['true', t('common.on')], ['false', t('common.off')]] })}
+    <p class="muted small">${esc(t('warm.help'))}</p>`;
+}
+
 /** Old name, kept for callers that only know the treadmill. */
 export const treadmillFields = targetFields;
 
@@ -128,6 +139,15 @@ export function renderSettings(root, s, ctx) {
       </section>
 
       <section class="card">
+        <h2>${esc(t('set.profile'))}</h2>
+        ${segmented({ label: t('set.sex'), path: 'sex', value: s.sex || '',
+          options: [['male', t('set.sex.male')], ['female', t('set.sex.female')]] })}
+        ${s.maxHrSource === 'age' ? '' : stepper({ label: t('set.age'), path: 'age', value: s.age, step: 1, min: 10, max: 99, nullable: true })}
+        ${stepper({ label: t('set.weight'), path: 'weightKg', value: s.weightKg, step: 0.5, min: 30, max: 250, unit: 'kg', nullable: true })}
+        <p class="muted small">${esc(t('set.profileHelp'))}</p>
+      </section>
+
+      <section class="card">
         <h2>${esc(t('set.strap'))}</h2>
         ${strapFields(s)}
       </section>
@@ -153,7 +173,8 @@ export function renderSettings(root, s, ctx) {
 
       <section class="card">
         <h2>${esc(t('set.targets', { activity: activityName(s.activity) }))}</h2>
-        ${activityOf(s).controls.length ? `<p class="muted small">${esc(t('set.treadmillHelp'))}</p>` : ''}
+        ${planFields(s)}
+        ${activityOf(s).controls.length ? `<p class="muted small">${esc(t(s.intervalPlan === 'manual' ? 'set.treadmillHelp' : 'est.planHelp'))}</p>` : ''}
         ${targetFields(s)}
       </section>
 

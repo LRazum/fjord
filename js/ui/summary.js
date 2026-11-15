@@ -4,7 +4,7 @@ import { esc, toast } from './dom.js';
 import { toTcx, exportBaseName } from '../export.js';
 import { saveFile } from './download.js';
 import { workoutStats } from '../stats.js';
-import { tile, dash, recommendationText, rpeButtons, bindRpe, activityName } from './views-common.js';
+import { tile, dash, recommendationText, rpeButtons, bindRpe, activityName, fmtTargets, vo2Html } from './views-common.js';
 import { activityOf } from '../activities.js';
 
 const validMax = (bpm) => Number.isFinite(bpm) && bpm >= 120 && bpm <= 230;
@@ -37,7 +37,8 @@ function testResultHtml(rec, current) {
 
 /**
  * Post-workout screen: key numbers, next-session recommendation, RPE and a note.
- * @param {object} ctx { recommendation, onApply(), onApplyTest(bpm), currentMax, onDone(rec), onDetails(rec) }
+ * @param {object} ctx { recommendation, autoPlan, nextEstimate(), vo2, profile, onApply(), onApplyTest(bpm), currentMax,
+ *                       onDone(rec), onDetails(rec) }
  */
 export function renderSummary(root, rec, ctx) {
   const st = workoutStats(rec);
@@ -47,10 +48,15 @@ export function renderSummary(root, rec, ctx) {
   const r = ctx.recommendation;
 
   let recBlock = '';
+  let est = null;
   if (isTest) recBlock = testResultHtml(rec, ctx.currentMax);
   else if (r) {
     let action = '';
-    if (r.action !== 'none' && r.applicable !== false) {
+    // With the automatic plan the next target comes from the history, this workout included.
+    est = ctx.autoPlan && ctx.nextEstimate ? ctx.nextEstimate() : null;
+    if (est) {
+      action = `<p class="note">${esc(t('est.next', { next: fmtTargets(r.activity || rec.activity, est.values), n: est.n }))}</p>`;
+    } else if (r.action !== 'none' && r.applicable !== false) {
       action = `<div data-rec-actions class="btn-col">
         <button class="btn btn-block" data-action="apply">${esc(t('rec.apply'))}</button>
         <button class="btn btn-block" data-action="keep-plan">${esc(t('rec.skip'))}</button>
@@ -58,7 +64,7 @@ export function renderSummary(root, rec, ctx) {
     }
     recBlock = `<section class="card rec-card rec-${r.action}">
         <h2>${esc(t('rec.title'))}</h2>
-        <p>${esc(recommendationText(r))}</p>
+        <p>${esc(est && r.action !== 'none' ? recommendationText({ ...r, applicable: false }) : recommendationText(r))}</p>
         ${action}
       </section>`;
   }
@@ -78,6 +84,10 @@ export function renderSummary(root, rec, ctx) {
           : tile(t('sum.timeInZone'), dash(o.timeInZonePct, ' %'), o.timeInZoneSec ? fmtClock(o.timeInZoneSec) : '')}
         ${tile(t('sum.hrr'), dash(o.avgHrr60, ' bpm'), t('sum.hrrSub'))}
       </div>
+      ${!isTest && ctx.vo2 != null ? `<section class="card vo2-card">
+        <h2>${esc(t('vo2.title'))} <span class="h2-sub">${esc(t('vo2.estimated'))}</span></h2>
+        ${vo2Html({ value: ctx.vo2 }, ctx.profile || rec.settings, t('vo2.fromWorkout'))}
+      </section>` : ''}
       ${recBlock}
       <section class="card">
         <h2>${esc(t('sum.rpe'))}</h2>
