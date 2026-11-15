@@ -2,7 +2,7 @@
 // timeout, falling back to the cache so the app works offline after the first load.
 // Bump VERSION when you change the asset list.
 
-const VERSION = 'fjord-v15';
+const VERSION = 'fjord-v16';
 const NETWORK_TIMEOUT_MS = 3000;
 
 const ASSETS = [

@@ -1857,8 +1857,10 @@ body.in-workout .toast {
 .wo-dial {
   position: relative;
   flex: 1 1 auto;
-  min-height: auto;
+  min-height: 0;
   width: 100%;
+  /* The ring is as big as this box allows; the heart rate inside is sized from it. */
+  container-type: size;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1926,8 +1928,10 @@ body.in-workout .toast {
 
 .wo-bpm {
   font-family: var(--num);
-  /* Sized to sit inside the dial's ring with room to spare. */
   font-size: clamp(3.6rem, min(26vw, 12.5vh), 9.5rem);
+  /* Sized from the ring's diameter (the smaller side of the dial, at most 400px), so even
+     a wide three-digit number in SF Rounded stays inside it. */
+  font-size: clamp(2.4rem, min(34cqh, 34cqw, 136px), 8.5rem);
   font-weight: 700;
   line-height: 0.95;
   letter-spacing: -0.04em;
@@ -2271,6 +2275,17 @@ body.in-workout .toast {
   display: none;
 }
 
+/* Without the ring the heart rate is sized from the screen again. */
+.is-test .wo-dial,
+.has-suggestion .wo-dial {
+  container-type: normal;
+  min-height: auto;
+}
+
+.is-test .wo-bpm {
+  font-size: clamp(3.6rem, min(28vw, 14vh), 9.5rem);
+}
+
 @media (orientation: portrait) and (max-height: 600px) {
   .wo-gauge {
     display: none;
@@ -2296,6 +2311,8 @@ body.in-workout .toast {
 
   .wo-dial {
     margin: 0;
+    container-type: normal;
+    min-height: auto;
   }
 
   .has-suggestion .wo-meta {
@@ -2382,10 +2399,6 @@ body.in-workout .toast {
     font-size: clamp(1.2rem, 6vh, 2rem);
   }
 
-  .wo-bpm {
-    font-size: clamp(3.4rem, min(19vh, 15vw), 9rem);
-  }
-
   .wo-countdown {
     font-size: clamp(1.6rem, 9vh, 3.6rem);
   }
@@ -2446,6 +2459,15 @@ body.in-workout .toast {
 @media (orientation: landscape) and (max-height: 360px) {
   .wo-gauge {
     display: none;
+  }
+
+  .wo-dial {
+    container-type: normal;
+    min-height: auto;
+  }
+
+  .wo-bpm {
+    font-size: clamp(2.8rem, min(19vh, 15vw), 5rem);
   }
 
   .has-suggestion .wo-bpm {
