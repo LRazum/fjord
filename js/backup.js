@@ -2,6 +2,17 @@
 
 import { workoutStats } from './stats.js';
 import { DEFAULT_SETTINGS, mergeDeep } from './settings.js';
+import { activityOf } from './activities.js';
+
+// Every machine control across activities, as CSV columns.
+const CONTROL_COLUMNS = [
+  ['speed', 'speed_kmh'],
+  ['incline', 'incline_pct'],
+  ['level', 'level'],
+  ['cadence', 'cadence_rpm'],
+  ['power', 'power_w'],
+  ['rate', 'stroke_rate_spm'],
+];
 
 export const BACKUP_FORMAT = 1;
 
@@ -30,12 +41,19 @@ export function sessionsCsv(records) {
     'interval_time_in_zone_pct',
     'avg_interval_speed_kmh',
     'avg_interval_incline_pct',
+    'avg_interval_level',
+    'avg_interval_cadence_rpm',
+    'avg_interval_power_w',
+    'avg_interval_stroke_rate_spm',
     'speed_at_90pct_hrmax_kmh',
     'avg_hr_recovery_60s',
     'max_hr_setting',
     'rpe',
     'note',
     'source',
+    'activity',
+    'kind',
+    'test_peak_hr',
   ];
   const rows = records
     .slice()
@@ -55,12 +73,19 @@ export function sessionsCsv(records) {
         o.timeInZonePct,
         o.avgIntervalSpeed,
         o.avgIntervalIncline,
+        o.avgInterval.level ?? null,
+        o.avgInterval.cadence ?? null,
+        o.avgInterval.power ?? null,
+        o.avgInterval.rate ?? null,
         o.efficiency,
         o.avgHrr60,
         rec.settings.maxHr,
         rec.rpe ?? null,
         rec.note || null,
         rec.source,
+        activityOf(rec.settings).id,
+        rec.kind || 'workout',
+        o.peakHr,
       ];
     });
   return toCsv([head, ...rows]);
@@ -74,7 +99,9 @@ export function samplesCsv(rec) {
     for (let s = Math.round(p.startSec); s < end; s++) phaseAt[s] = p;
   }
   const sorted = rec.treadmillLog.slice().sort((a, b) => a.t - b.t);
-  const rows = [['second', 'time_utc', 'hr_bpm', 'phase', 'phase_number', 'speed_kmh', 'incline_pct']];
+  const keys = activityOf(rec.settings).controls.map((c) => c.key);
+  const cols = CONTROL_COLUMNS.filter(([key]) => keys.includes(key));
+  const rows = [['second', 'time_utc', 'hr_bpm', 'phase', 'phase_number', ...cols.map((c) => c[1])]];
   const start = Date.parse(rec.startedAt);
   let k = -1;
   for (let s = 0; s <= rec.durationSec; s++) {
@@ -86,8 +113,7 @@ export function samplesCsv(rec) {
       rec.samples[s] ?? null,
       p ? p.type : null,
       p ? p.index : null,
-      k >= 0 ? sorted[k].speed : null,
-      k >= 0 ? sorted[k].incline : null,
+      ...cols.map(([key]) => (k >= 0 ? sorted[k][key] ?? null : null)),
     ]);
   }
   return toCsv(rows);

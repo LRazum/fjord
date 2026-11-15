@@ -4,6 +4,7 @@ import { esc, fields, setText } from './dom.js';
 import { zoneBpm } from '../hrmath.js';
 import { liveChartGeometry } from '../charts.js';
 import { maxHrText } from './views-common.js';
+import { activityOf, controlStep } from '../activities.js';
 
 const HOLD_DELAY_MS = 450;
 const HOLD_REPEAT_MS = 160;
@@ -42,17 +43,25 @@ export class WorkoutView {
   _render() {
     const s = this.session.settings;
     const n = this.session.plan.intervals;
+    this.controls = activityOf(s).controls;
+    this.isTest = this.session.isTest;
     const dots = Array.from({ length: n }, (_, i) => `<i data-dot="${i + 1}"></i>`).join('');
-    const tmBlock = (kind, unitKey, step) => `
-      <div class="tm" data-kind="${kind}">
-        <div class="tm-head" data-f="${kind}Label">${esc(t(kind === 'speed' ? 'wo.targetSpeed' : 'wo.targetIncline'))}</div>
-        <div class="tm-target"><span data-f="${kind}Target">--</span><small>${esc(t(unitKey))}</small></div>
-        <div class="tm-set"><span class="tm-set-label">${esc(t('wo.set'))}</span> <span data-f="${kind}Set">--</span></div>
+    const tmBlock = (c) => {
+      const step = controlStep(s, c);
+      return `
+      <div class="tm" data-kind="${c.key}">
+        <div class="tm-head" data-f="${c.key}Label">${esc(t(c.targetKey))}</div>
+        <div class="tm-target"><span data-f="${c.key}Target">--</span>${c.unitKey ? `<small>${esc(t(c.unitKey))}</small>` : ''}</div>
+        <div class="tm-set"><span class="tm-set-label">${esc(t('wo.set'))}</span> <span data-f="${c.key}Set">--</span></div>
         <div class="tm-row">
-          <button class="tm-btn" data-adjust="${kind}" data-delta="${-step}" aria-label="${esc(t('wo.' + kind))} −">−</button>
-          <button class="tm-btn" data-adjust="${kind}" data-delta="${step}" aria-label="${esc(t('wo.' + kind))} +">+</button>
+          <button class="tm-btn" data-adjust="${c.key}" data-delta="${-step}" aria-label="${esc(t(c.labelKey))} −">−</button>
+          <button class="tm-btn" data-adjust="${c.key}" data-delta="${step}" aria-label="${esc(t(c.labelKey))} +">+</button>
         </div>
       </div>`;
+    };
+    const nCtl = this.controls.length;
+    this.root.classList.toggle('no-controls', nCtl === 0);
+    this.root.classList.toggle('is-test', this.isTest);
 
     this.root.innerHTML = `
       <div class="wo-progress"><div data-f="progress"></div></div>
@@ -64,7 +73,7 @@ export class WorkoutView {
         <div class="wo-phase">
           <span class="wo-phase-name" data-f="phaseName"></span>
           <span class="wo-dots" data-f="dots">${dots}</span>
-          <span class="wo-hrmax">${esc(maxHrText(s))}</span>
+          <span class="wo-hrmax">${esc(this.isTest ? t('test.title') : maxHrText(s))}</span>
         </div>
         <div class="wo-meta">
           <span class="pill pill-sim" data-f="source" hidden>${esc(t('wo.sim'))}</span>
@@ -105,9 +114,8 @@ export class WorkoutView {
         </div>
       </section>
 
-      <section class="wo-tread">
-        ${tmBlock('speed', 'wo.kmh', s.speedStep)}
-        ${tmBlock('incline', 'wo.pct', s.inclineStep)}
+      <section class="wo-tread${nCtl === 1 ? ' wo-tread-one' : ''}"${nCtl ? '' : ' hidden'}>
+        ${this.controls.map(tmBlock).join('')}
       </section>
 
       <footer class="wo-controls">
@@ -225,25 +233,33 @@ export class WorkoutView {
     setText(f.total, fmtClock(s.elapsedSec));
     setText(f.countdown, fmtClock(s.phaseRemainingSec, { ceil: true }));
     setText(f.bpm, s.bpm == null ? '--' : s.bpm);
-    setText(f.pct, s.pct == null ? '' : t('wo.pctMax', { pct: Math.round(s.pct) }));
-    const [bpmLo, bpmHi] = zoneBpm(phase.zone, this.session.settings.maxHr);
-    setText(f.zoneText, t('wo.zone', { lo: bpmLo, hi: bpmHi }));
-    setText(f.zonePct, t('wo.zonePct', { lo: phase.zone[0], hi: phase.zone[1] }));
+    if (this.isTest) {
+      // No personal HRmax yet: show the effort to aim for and the peak so far instead of zones.
+      setText(f.pct, '');
+      setText(f.zoneText, t('test.peak', { bpm: s.peak == null ? '--' : s.peak }));
+      setText(f.zonePct, '');
+    } else {
+      setText(f.pct, s.pct == null ? '' : t('wo.pctMax', { pct: Math.round(s.pct) }));
+      const [bpmLo, bpmHi] = zoneBpm(phase.zone, this.session.settings.maxHr);
+      setText(f.zoneText, t('wo.zone', { lo: bpmLo, hi: bpmHi }));
+      setText(f.zonePct, t('wo.zonePct', { lo: phase.zone[0], hi: phase.zone[1] }));
+    }
     this._updateChart(s);
     this._updateSuggestion(s.suggestion);
     // Zone state in words too, so it does not depend on telling the colours apart.
     // A coaching cue (milestone 3) takes over this line while it is active.
-    setText(f.cue, this._cue || (s.zone ? t('wo.zone.' + s.zone) : ''));
+    const state = this.isTest ? t('test.cue.' + (phase.effort || 'easy')) : s.zone ? t('wo.zone.' + s.zone) : '';
+    setText(f.cue, this._cue || state);
     setText(f.trend, s.trend == null ? '' : s.trend > 4 ? '▲' : s.trend < -4 ? '▼' : '');
     f.progress.style.width = `${Math.min(100, (s.elapsedSec / s.totalSec) * 100).toFixed(2)}%`;
 
     f.source.hidden = s.source !== 'sim';
     setText(f.battery, s.battery == null ? '' : `🔋 ${s.battery} %`);
 
-    for (const kind of ['speed', 'incline']) {
-      setText(f[kind + 'Target'], fmtNum(s.target[kind], 1));
-      setText(f[kind + 'Set'], fmtNum(s.actual[kind], 1));
-      f[kind + 'Set'].parentElement.classList.toggle('differs', s.actual[kind] !== s.target[kind]);
+    for (const c of this.controls) {
+      setText(f[c.key + 'Target'], fmtNum(s.target[c.key], c.dec));
+      setText(f[c.key + 'Set'], fmtNum(s.actual[c.key], c.dec));
+      f[c.key + 'Set'].parentElement.classList.toggle('differs', s.actual[c.key] !== s.target[c.key]);
     }
 
     // Interval dots: done / current / upcoming.
@@ -270,13 +286,17 @@ export class WorkoutView {
     const f = this.f;
     f.coach.hidden = !p;
     this.root.classList.toggle('has-suggestion', !!p);
-    for (const kind of ['speed', 'incline']) {
-      setText(f[kind + 'Label'], t(p ? 'wo.' + kind : kind === 'speed' ? 'wo.targetSpeed' : 'wo.targetIncline'));
-    }
+    for (const c of this.controls) setText(f[c.key + 'Label'], t(p ? c.labelKey : c.targetKey));
     if (!p) return;
-    setText(f.coachReason, t('coach.' + p.reason));
-    setText(f.coachChange, t('coach.change', { kind: t('wo.' + p.kind),
-      from: fmtNum(p.from, 1), to: fmtNum(p.to, 1), unit: t(p.kind === 'speed' ? 'wo.kmh' : 'wo.pct') }));
+    const c = this.controls.find((x) => x.key === p.kind);
+    if (!c) {
+      setText(f.coachReason, t('coach.' + p.reason + 'Free'));
+      setText(f.coachChange, t(p.direction > 0 ? 'coach.faster' : 'coach.easier'));
+    } else {
+      setText(f.coachReason, t('coach.' + p.reason));
+      setText(f.coachChange, t('coach.change', { kind: t(c.labelKey),
+        from: fmtNum(p.from, c.dec), to: fmtNum(p.to, c.dec), unit: c.unitKey ? t(c.unitKey) : '' }).trim());
+    }
     f.coachAccept.dataset.id = p.id;
     f.coachSkip.dataset.id = p.id;
   }
@@ -295,7 +315,8 @@ export class WorkoutView {
     });
     this.f.chartLine.setAttribute('d', g.d);
     setText(this.f.chartWindow, t('wo.chartWindow', { sec: g.windowSec }));
-    const bands = g.bands.map((b) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"></rect>`).join('');
+    // Test zones are only nominal (no personal HRmax yet), so no bands then.
+    const bands = this.isTest ? '' : g.bands.map((b) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"></rect>`).join('');
     if (bands !== this._chartBands) {
       this._chartBands = bands;
       this.f.chartBands.innerHTML = bands;
@@ -311,7 +332,7 @@ export class WorkoutView {
     r.onpointerdown = r.onpointerup = r.onpointercancel = r.onpointerout = r.oncontextmenu = r.onclick = null;
     delete r.dataset.zone;
     delete r.dataset.phase;
-    r.classList.remove('is-paused', 'last-seconds', 'has-suggestion');
+    r.classList.remove('is-paused', 'last-seconds', 'has-suggestion', 'no-controls', 'is-test');
     this.root.innerHTML = '';
   }
 }

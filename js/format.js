@@ -30,6 +30,7 @@ export function fmtNum(v, decimals = 0) {
 /** Phase display name, e.g. "Interval 2/4". */
 export function phaseName(phase, intervals) {
   if (!phase) return '';
+  if (phase.label) return t(phase.label);
   if (phase.type === 'interval') return t('phase.intervalOf', { n: phase.index, total: intervals });
   if (phase.type === 'recovery') return t('phase.recoveryOf', { n: phase.index, total: intervals - 1 });
   return t('phase.' + phase.type);

@@ -1,6 +1,6 @@
 # Fjord
 
-Norwegian 4×4 interval training on a treadmill, guided by live heart rate from a Bluetooth chest strap.
+Norwegian 4×4 interval training, guided by live heart rate from a Bluetooth chest strap or a watch that broadcasts heart rate. Works on a treadmill, gym bike, stepmill, rowing machine, or outdoors (run or ride).
 
 - Vanilla HTML/CSS/JS (ES modules). No build step and no dependencies.
 - UI in English by default; Croatian is available via the EN/HR switch.
@@ -16,6 +16,7 @@ Norwegian 4×4 interval training on a treadmill, guided by live heart rate from 
 | 3 | Voice and sounds | dropped for now; optional text suggestions are available |
 | 4 | Storage (IndexedDB), crash recovery, history, workout detail, progress, statistics | ✅ |
 | 5 | Onboarding, settings, backup export/import, CSV, TCX | ✅ |
+| 6 | Watches, max HR test, bike / stepmill / rower / outdoor | ✅ (watches not yet tried on a real device) |
 
 Not yet tested on a real strap: the Bluetooth code is covered by unit tests with a fake device and by an in-browser test with a fake `navigator.bluetooth`.
 
@@ -125,6 +126,25 @@ When you add a new file, also add it to the `ASSETS` list in `sw.js` and bump `V
 - If the link drops during a workout, the timer keeps running, a red banner appears (the phone also vibrates where supported), and Fjord retries automatically (after 1, 2, 4, 8, then every 15 s). **Reconnect** in the banner retries at once.
 - A "no skin contact" warning appears when the strap reports it.
 - Most straps accept one Bluetooth connection at a time: disconnect it from your watch and other apps first. The Polar H10 accepts two.
+- **Watches** work when they broadcast heart rate over Bluetooth (Garmin *Broadcast Heart Rate*, COROS *Heart Rate Broadcast*, Polar and newer Suunto *share HR*). Apple Watch needs a third-party broadcast app. Choose *Watch* in onboarding or Settings for model-specific tips. Wrist HR reacts a few seconds later than a strap.
+
+## Activities
+
+Pick the activity on the home screen. Each has its own planned settings per phase, its own +/− controls and its own suggestions:
+
+| Activity | Logged settings |
+|---|---|
+| Treadmill | speed (km/h), incline (%) |
+| Gym bike | resistance level, cadence (rpm) |
+| Stepmill | level |
+| Rowing machine | power (W), stroke rate (spm) |
+| Outdoor run / ride | none: heart rate only, suggestions say "speed up" or "ease off" |
+
+Progress is shown per activity. Speed at 90 % HRmax and TCX distance are treadmill-only.
+
+## Max HR test
+
+If you don't know your maximum heart rate, choose *I do not know — test it* (or *estimate from age*). The test takes about 23 min: 10 min easy, 3 min hard and steady, 2 min easy, 3 min building to an all-out final minute, 5 min cool-down. The highest 5-second average becomes your HRmax once you accept it on the summary. Do it on the activity you train on: max HR is usually lower on a bike than running.
 
 ## Data, history and statistics
 

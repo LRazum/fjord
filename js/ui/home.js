@@ -3,27 +3,40 @@ import { fmtNum } from '../format.js';
 import { esc } from './dom.js';
 import { buildPlan } from '../workout.js';
 import { zoneBpm } from '../hrmath.js';
-import { strapById } from '../straps.js';
-import { maxHrText } from './views-common.js';
+import { strapById, deviceFallbackKey } from '../straps.js';
+import { ACTIVITIES, activityOf, phaseTargets } from '../activities.js';
+import { maxHrTestPending } from '../settings.js';
+import { maxHrText, fmtTargets } from './views-common.js';
 
 /**
  * @param {HTMLElement} root
  * @param {object} app  { settings, strap, btSupported, storage, liveBpm }
- * @param {object} on   { start(), nav(name), setDev(key, value), setSource(src), connect(), disconnect() }
+ * @param {object} on   { start(), startTest(), nav(name), setDev(key, value), setSource(src),
+ *                        setActivity(id), connect(), disconnect() }
  */
 export function renderHome(root, app, on) {
   const s = app.settings;
   const st = s.structure;
   const plan = buildPlan(s);
+  const activity = activityOf(s);
+  const targets = phaseTargets(s);
+  const hasControls = activity.controls.length > 0;
   const min = (sec) => fmtNum(sec / 60, sec % 60 ? 1 : 0);
-  const tm = (p) => `${fmtNum(s.treadmill[p].speed, 1)} km/h · ${fmtNum(s.treadmill[p].incline, 1)} %`;
   const zone = (p) => {
     const [lo, hi] = zoneBpm(s.zones[p], s.maxHr);
     return `${lo}–${hi}`;
   };
   const rows = ['warmup', 'interval', 'recovery', 'cooldown']
-    .map((p) => `<tr><th>${esc(t('phase.' + p))}</th><td>${esc(zone(p))}</td><td>${esc(tm(p))}</td></tr>`)
+    .map((p) => `<tr><th>${esc(t('phase.' + p))}</th><td>${esc(zone(p))}</td>${
+      hasControls ? `<td>${esc(fmtTargets(activity.id, targets[p]))}</td>` : ''}</tr>`)
     .join('');
+  const testDue = maxHrTestPending(s);
+  const activityButtons = ACTIVITIES.map(
+    (a) => `<button class="act-btn${a.id === activity.id ? ' is-on' : ''}" data-action="activity" data-value="${a.id}" aria-pressed="${a.id === activity.id}">
+        <span class="act-name">${esc(t('act.' + a.id))}</span>
+        <span class="act-where">${esc(t(a.indoor ? 'act.indoor' : 'act.outdoor'))}</span>
+      </button>`,
+  ).join('');
 
   const seg = (key, value, options) =>
     `<div class="seg" role="group">${options
@@ -48,7 +61,20 @@ export function renderHome(root, app, on) {
 
       ${app.storage && app.storage.backend === 'memory' ? `<p class="note">${esc(t('home.noStorage'))}</p>` : ''}
 
+      ${testDue ? `<section class="card test-card">
+        <h2>${esc(t('test.title'))}</h2>
+        <p>${esc(t('test.homeDue'))}</p>
+        <p class="muted small">${esc(t('test.about'))}</p>
+        <button class="btn btn-primary btn-block" data-action="test">${esc(t('test.start'))}</button>
+      </section>` : ''}
+
       <section class="card" id="strap-card">${strapCardHtml(app)}</section>
+
+      <section class="card">
+        <h2>${esc(t('home.activity'))}</h2>
+        <div class="act-grid" role="group">${activityButtons}</div>
+        <p class="muted small">${esc(t('act.help.' + activity.id))}</p>
+      </section>
 
       <section class="card">
         <h2>${esc(t('home.plan'))}</h2>
@@ -63,10 +89,13 @@ export function renderHome(root, app, on) {
         )}</p>
         <p class="muted">${esc(t('home.total', { min: Math.round(plan.totalSec / 60) }))} · ${esc(maxHrText(s))}</p>
         <table class="plan-table">
-          <thead><tr><th></th><th>${esc(t('home.zonesBpm'))}</th><th>${esc(t('home.targets'))}</th></tr></thead>
+          <thead><tr><th></th><th>${esc(t('home.zonesBpm'))}</th>${hasControls ? `<th>${esc(t('home.targets'))}</th>` : ''}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <button class="btn btn-link" data-action="nav" data-to="settings">${esc(t('home.editPlan'))}</button>
+        <div class="btn-row-inline">
+          <button class="btn btn-link" data-action="nav" data-to="settings">${esc(t('home.editPlan'))}</button>
+          ${testDue ? '' : `<button class="btn btn-link" data-action="test">${esc(t('test.link'))}</button>`}
+        </div>
       </section>
 
       <details class="card dev">
@@ -96,6 +125,8 @@ export function renderHome(root, app, on) {
     if (!b) return;
     const a = b.dataset.action;
     if (a === 'start') on.start();
+    else if (a === 'test') on.startTest();
+    else if (a === 'activity') on.setActivity(b.dataset.value);
     else if (a === 'nav') on.nav(b.dataset.to);
     else if (a === 'source') on.setSource(b.dataset.value);
     else if (a === 'connect') on.connect();
@@ -119,20 +150,22 @@ export function strapCardHtml(app) {
   }
 
   const useSim = s.hrSource === 'sim';
+  const model = strapById(s.strapModel);
+  const isWatch = model.kind === 'watch';
+  const modelName = model.name || t(deviceFallbackKey(model));
   const switcher = `
     <div class="seg seg-wide" role="group">
-      <button class="seg-btn${useSim ? '' : ' is-on'}" data-action="source" data-value="strap">${esc(t('home.strap'))}</button>
+      <button class="seg-btn${useSim ? '' : ' is-on'}" data-action="source" data-value="strap">${esc(t(isWatch ? 'home.watch' : 'home.strap'))}</button>
       <button class="seg-btn${useSim ? ' is-on' : ''}" data-action="source" data-value="sim">${esc(t('home.simulator'))}</button>
     </div>`;
   if (useSim) return `${head}${switcher}<p class="muted small">${esc(t('home.simNote'))}</p>`;
 
   const strap = app.strap;
-  const model = strapById(s.strapModel);
   const state = strap ? strap.state : 'idle';
   let status;
   let button;
   if (state === 'connected') {
-    const bits = [esc(strap.name || model.name || t('strap.other'))];
+    const bits = [esc(strap.name || modelName)];
     if (strap.battery != null) bits.push(`🔋 ${strap.battery} %`);
     status = `<p class="strap-status"><span class="dot dot-ok"></span><span>${bits.join(' · ')}</span>
       <span class="strap-live"><b data-live-bpm>${app.liveBpm ?? '--'}</b> bpm</span></p>`;
@@ -143,13 +176,13 @@ export function strapCardHtml(app) {
     button = `<button class="btn btn-block" data-action="disconnect">${esc(t('wo.cancel'))}</button>`;
   } else {
     status = `<p class="strap-status"><span class="dot"></span>${esc(t('strap.notConnected'))}</p>`;
-    button = `<button class="btn btn-primary btn-block" data-action="connect">${esc(t('home.connect'))}</button>`;
+    button = `<button class="btn btn-primary btn-block" data-action="connect">${esc(t(isWatch ? 'home.connectWatch' : 'home.connect'))}</button>`;
   }
   const tips = model.tips.map((k) => `<li>${esc(t(k))}</li>`).join('');
-  const oneConn = model.connections > 1 ? t('strap.twoConnections') : t('strap.oneConnection');
+  const oneConn = isWatch ? t('watch.note') : model.connections > 1 ? t('strap.twoConnections') : t('strap.oneConnection');
   return `${head}${switcher}${status}${button}
-    <details class="tips">
-      <summary>${esc(t('strap.tipsFor', { name: model.name || t('strap.other') }))}</summary>
+    <details class="tips"${isWatch && state !== 'connected' ? ' open' : ''}>
+      <summary>${esc(t('strap.tipsFor', { name: modelName }))}</summary>
       <ul>${tips}<li>${esc(oneConn)}</li></ul>
     </details>`;
 }

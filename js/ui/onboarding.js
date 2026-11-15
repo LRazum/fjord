@@ -1,10 +1,15 @@
 import { t, LANGUAGES, getLang } from '../i18n.js';
 import { esc } from './dom.js';
 import { bindForm, setPath } from './form.js';
-import { hasMaxHr, updateHeartRateSettings } from '../settings.js';
-import { heartRateFields, strapFields, treadmillFields, adjustFields } from './settings-view.js';
+import { hasMaxHr, maxHrTestPending, updateHeartRateSettings } from '../settings.js';
+import { updateDeviceSettings } from '../straps.js';
+import { activityOf } from '../activities.js';
+import { heartRateFields, strapFields, activityFields, targetFields, adjustFields, RERENDER_PATHS } from './settings-view.js';
 
-const STEPS = ['welcome', 'strap', 'heart', 'treadmill', 'adjust'];
+const STEPS = ['welcome', 'strap', 'heart', 'activity', 'adjust'];
+
+// Choosing the max HR test is a valid answer: the home screen then offers the test.
+const heartDone = (d) => hasMaxHr(d) || maxHrTestPending(d);
 
 /**
  * First-launch setup. Works on a draft copy of the settings; nothing is saved until
@@ -33,9 +38,11 @@ export function renderOnboarding(root, draft, ctx, step = 0) {
   } else if (name === 'strap') {
     body = `<h1>${esc(t('onb.strapTitle'))}</h1><p>${esc(t('onb.strapText'))}</p>${strapFields(draft)}`;
   } else if (name === 'heart') {
-    body = `<h1>${esc(t('onb.heartTitle'))}</h1><p>${esc(t('onb.heartText'))}</p>${heartRateFields(draft)}`;
-  } else if (name === 'treadmill') {
-    body = `<h1>${esc(t('onb.treadTitle'))}</h1><p>${esc(t('onb.treadText'))}</p>${treadmillFields(draft)}`;
+    body = `<h1>${esc(t('onb.heartTitle'))}</h1><p>${esc(t('onb.heartText'))}</p>${heartRateFields(draft)}
+      ${draft.maxHrSource === 'test' ? `<p class="note">${esc(t('onb.testLater'))}</p>` : ''}`;
+  } else if (name === 'activity') {
+    body = `<h1>${esc(t('onb.activityTitle'))}</h1><p>${esc(t('onb.activityText'))}</p>${activityFields(draft)}
+      ${activityOf(draft).controls.length ? `<p>${esc(t('onb.treadText'))}</p>` : ''}${targetFields(draft)}`;
   } else {
     body = `<h1>${esc(t('onb.adjustTitle'))}</h1><p>${esc(t('onb.adjustText'))}</p>${adjustFields(draft)}
       <p class="muted small">${esc(t('onb.editLater'))}</p>`;
@@ -50,14 +57,14 @@ export function renderOnboarding(root, draft, ctx, step = 0) {
       <section class="onb-body">${body}</section>
       <div class="sticky-start btn-row">
         ${step > 0 ? `<button class="btn btn-xl" data-action="prev">${esc(t('onb.back'))}</button>` : ''}
-        <button class="btn btn-primary btn-xl" data-action="next" ${name === 'heart' && !hasMaxHr(draft) ? 'disabled' : ''}>${esc(last ? t('onb.finish') : t('onb.next'))}</button>
+        <button class="btn btn-primary btn-xl" data-action="next" ${name === 'heart' && !heartDone(draft) ? 'disabled' : ''}>${esc(last ? t('onb.finish') : t('onb.next'))}</button>
       </div>
     </div>`;
 
   bindForm(root, (path, value) => {
     if (path === 'coachingEnabled') value = value === 'true';
-    if (!updateHeartRateSettings(draft, path, value)) setPath(draft, path, value);
-    if (['age', 'maxHr', 'maxHrSource', 'strapModel'].includes(path)) renderOnboarding(root, draft, ctx, step);
+    if (!updateHeartRateSettings(draft, path, value) && !updateDeviceSettings(draft, path, value)) setPath(draft, path, value);
+    if (RERENDER_PATHS.includes(path)) renderOnboarding(root, draft, ctx, step);
   });
 
   root.onclick = (e) => {
@@ -72,7 +79,7 @@ export function renderOnboarding(root, draft, ctx, step = 0) {
       renderOnboarding(root, draft, ctx, step - 1);
       window.scrollTo(0, 0);
     } else if (a === 'next') {
-      if (name === 'heart' && !hasMaxHr(draft)) return;
+      if (name === 'heart' && !heartDone(draft)) return;
       if (last) ctx.onFinish(draft);
       else {
         renderOnboarding(root, draft, ctx, step + 1);

@@ -1,8 +1,10 @@
 // App entry point: wires settings, screens, storage, the workout session and the HR source.
 
 import { t, setLang } from './i18n.js';
-import { loadSettings, saveSettings, clone, hasMaxHr, updateHeartRateSettings } from './settings.js';
-import { buildPlan } from './workout.js';
+import { loadSettings, saveSettings, clone, hasMaxHr, updateHeartRateSettings, simMaxHr, applyMaxHrTest } from './settings.js';
+import { buildPlan, buildTestPlan } from './workout.js';
+import { activityOf, phaseTargets, targetsPath } from './activities.js';
+import { updateDeviceSettings } from './straps.js';
 import { WorkoutSession } from './session.js';
 import { ReadySession } from './ready.js';
 import { HrSimulator, profileBias } from './simulator.js';
@@ -40,6 +42,7 @@ const app = {
   liveBpm: null,
   liveHrAt: -Infinity,
   includeSim: true,
+  progressActivity: null,
 };
 
 const screens = {};
@@ -96,7 +99,15 @@ function refreshStrapCard() {
 
 function showHome() {
   renderHome(screens.home, app, {
-    start: startWorkout,
+    start: () => startWorkout(),
+    startTest: () => startWorkout('maxTest'),
+    setActivity(id) {
+      app.settings.activity = id;
+      persist();
+      const y = window.scrollY;
+      showHome();
+      window.scrollTo(0, y);
+    },
     nav(to) {
       if (to === 'history') showHistory();
       else if (to === 'progress') showProgress();
@@ -119,9 +130,37 @@ function showHome() {
 
 // ---------- workout ----------
 
-async function startWorkout() {
+/** A simulated athlete for the current activity, calibrated to its planned interval. */
+function makeSim(s, bias = profileBias(s.dev.simProfile)) {
+  const activity = activityOf(s);
+  const zone = s.zones.interval;
+  return new HrSimulator({
+    maxHr: simMaxHr(s),
+    restHr: s.restHr,
+    activity: activity.id,
+    reference: activity.controls.length ? phaseTargets(s).interval : null,
+    intervalTargetPct: (zone[0] + zone[1]) / 2,
+    bias,
+  });
+}
+
+/** kind: 'workout' (the planned 4×4) or 'maxTest' (the HRmax field test). */
+async function startWorkout(kind = 'workout') {
   if (app.ready || app.session) return;
-  if (!hasMaxHr(app.settings)) return showSettings();
+  if (kind === 'workout' && !hasMaxHr(app.settings)) {
+    const choice = await choiceDialog({
+      title: t('start.noMaxTitle'),
+      text: t('start.noMaxText'),
+      choices: [
+        { value: 'test', label: t('test.start'), kind: 'primary' },
+        { value: 'settings', label: t('nav.settings') },
+        { value: null, label: t('wo.cancel') },
+      ],
+    });
+    if (choice === 'settings') showSettings();
+    if (choice !== 'test') return;
+    kind = 'maxTest';
+  }
   // Start these inside the tap: the screen-on video and Bluetooth need a user gesture.
   const screenOn = keepScreenOn();
   let sim = useSimulator();
@@ -144,18 +183,8 @@ async function startWorkout() {
   }
 
   const s = app.settings;
-  const plan = buildPlan(s);
-  const zone = s.zones.interval;
-  const simulator = sim
-    ? new HrSimulator({
-        maxHr: s.maxHr,
-        restHr: s.restHr,
-        reference: s.treadmill.interval,
-        intervalTargetPct: (zone[0] + zone[1]) / 2,
-        bias: profileBias(s.dev.simProfile),
-      })
-    : null;
-  showReady(s, plan, simulator, screenOn);
+  const plan = kind === 'maxTest' ? buildTestPlan(s) : buildPlan(s);
+  showReady(s, plan, sim ? makeSim(s) : null, screenOn);
 }
 
 function showReady(settings, plan, sim, screenOn) {
@@ -278,7 +307,8 @@ async function saveRecord(rec) {
 
 /** Plan the next session's interval target from a recommendation. */
 function applyRecommendation(r) {
-  app.settings.treadmill.interval = { ...r.next };
+  if (r.applicable === false) return;
+  setPath(app.settings, targetsPath(r.activity || 'treadmill') + '.interval', { ...r.next });
   persist();
 }
 
@@ -286,7 +316,11 @@ function showSummary(rec) {
   const r = recommendNext(rec);
   renderSummary(screens.summary, rec, {
     recommendation: r,
+    currentMax: hasMaxHr(app.settings) ? app.settings.maxHr : null,
     onApply: () => applyRecommendation(r),
+    onApplyTest(bpm) {
+      if (applyMaxHrTest(app.settings, bpm, rec.activity || activityOf(rec.settings).id, rec.startedAt)) persist();
+    },
     async onDone(updated) {
       await saveRecord(updated);
       showHome();
@@ -332,6 +366,11 @@ async function showProgress() {
   const records = await store.listWorkouts();
   renderProgress(screens.progress, records, {
     onBack: showHome,
+    activity: app.progressActivity || app.settings.activity,
+    onActivity(id) {
+      app.progressActivity = id;
+      showProgress();
+    },
     includeSim: app.includeSim,
     onToggleSim(v) {
       app.includeSim = v;
@@ -349,7 +388,9 @@ function showSettings() {
     onBack: showHome,
     onChange(path, value) {
       if (path === 'coachingEnabled') value = value === 'true';
-      if (!updateHeartRateSettings(app.settings, path, value)) setPath(app.settings, path, value);
+      if (!updateHeartRateSettings(app.settings, path, value) && !updateDeviceSettings(app.settings, path, value)) {
+        setPath(app.settings, path, value);
+      }
       // Keep every zone low ≤ high.
       const m = /^zones\.(\w+)\.(0|1)$/.exec(path);
       if (m) {
@@ -372,6 +413,7 @@ function showSettings() {
     importBackup,
     exportCsv,
     onboarding: () => showOnboarding(),
+    startTest: () => startWorkout('maxTest'),
   });
   showScreen('settings');
 }
@@ -467,10 +509,7 @@ async function offerRecovery(snap) {
   });
   if (choice === 'resume') {
     const s = snap.settings;
-    const sim =
-      snap.source === 'sim'
-        ? new HrSimulator({ maxHr: s.maxHr, restHr: s.restHr, reference: s.treadmill.interval, bias: profileBias(s.dev.simProfile) })
-        : null;
+    const sim = snap.source === 'sim' ? makeSim(s) : null;
     if (!sim && !app.btSupported) {
       toast(t('rescue.needStrap'), 6000);
       return offerRecovery(snap);

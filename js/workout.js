@@ -2,20 +2,31 @@
 // the caller feeds elapsed workout time in through advance(dtMs).
 
 import { Emitter } from './emitter.js';
+import { phaseTargets } from './activities.js';
 
 export const PHASE_TYPES = ['warmup', 'interval', 'recovery', 'cooldown'];
+
+function withStarts(phases) {
+  let t = 0;
+  for (const p of phases) {
+    p.startSec = t;
+    t += p.durationSec;
+  }
+  return t;
+}
 
 /** Build the ordered list of phases from settings. */
 export function buildPlan(settings) {
   const s = settings.structure;
   const phases = [];
   const n = Math.max(1, Math.round(s.intervals));
+  const targets = phaseTargets(settings);
   const mk = (type, durationSec, index) => ({
     type,
     index, // 1-based interval/recovery number, null for warmup/cooldown
     durationSec: Math.round(durationSec),
     zone: settings.zones[type].slice(),
-    target: { ...settings.treadmill[type] },
+    target: { ...targets[type] },
   });
 
   if (s.warmupSec > 0) phases.push(mk('warmup', s.warmupSec, null));
@@ -25,12 +36,28 @@ export function buildPlan(settings) {
   }
   if (s.cooldownSec > 0) phases.push(mk('cooldown', s.cooldownSec, null));
 
-  let t = 0;
-  for (const p of phases) {
-    p.startSec = t;
-    t += p.durationSec;
-  }
+  const t = withStarts(phases);
   return { phases, intervals: n, totalSec: t };
+}
+
+/**
+ * Maximum heart-rate field test: a long warm-up, 3 min hard and steady, 2 min easy,
+ * then 3 min building to an all-out final minute. The peak of the 5 s smoothed HR is
+ * the result. Zones are only nominal here: the test is run by effort, not by zone.
+ */
+export const MAX_TEST = [
+  { type: 'warmup', index: null, durationSec: 600, zone: [60, 75], effort: 'easy', label: null },
+  { type: 'interval', index: 1, durationSec: 180, zone: [85, 92], effort: 'hard', label: 'test.phase.hard' },
+  { type: 'recovery', index: 1, durationSec: 120, zone: [60, 75], effort: 'easy', label: 'test.phase.easy' },
+  { type: 'interval', index: 2, durationSec: 180, zone: [92, 100], effort: 'max', label: 'test.phase.max' },
+  { type: 'cooldown', index: null, durationSec: 300, zone: [50, 65], effort: 'easy', label: null },
+];
+
+export function buildTestPlan(settings) {
+  const targets = phaseTargets(settings);
+  const phases = MAX_TEST.map((p) => ({ ...p, zone: p.zone.slice(), target: { ...targets[p.type] } }));
+  const t = withStarts(phases);
+  return { kind: 'maxTest', phases, intervals: 2, totalSec: t };
 }
 
 // Remaining-time thresholds (ms) that fire 'cue' events.

@@ -6,16 +6,18 @@ import { toTcx, exportBaseName } from '../export.js';
 import { samplesCsv } from '../backup.js';
 import { saveFile } from './download.js';
 import { workoutChartSvg, bindWorkoutChart } from './chart-svg.js';
-import { backHeader, fmtDate, fmtTime, tile, dash, rpeButtons, bindRpe, recommendationText } from './views-common.js';
+import { backHeader, fmtDate, fmtTime, tile, dash, rpeButtons, bindRpe, recommendationText, activityName } from './views-common.js';
 import { confirmDialog } from './modal.js';
-
-const num1 = (v) => (v == null ? '--' : fmtNum(v, 1));
+import { activityOf } from '../activities.js';
 
 /** One saved workout. ctx: { onBack(), onSave(rec), onDelete(rec) } */
 export function renderDetail(root, rec, ctx) {
   const st = workoutStats(rec);
   const o = st.overall;
   const { svg, geometry } = workoutChartSvg(rec, st.phases);
+  const controls = activityOf(rec.settings).controls;
+  const isTest = rec.kind === 'maxTest';
+  const ctlHead = controls.map((c) => `<th>${esc(c.unitKey ? t(c.unitKey) : t(c.labelKey))}</th>`).join('');
 
   const intervalRows = st.intervals
     .map(
@@ -24,7 +26,7 @@ export function renderDetail(root, rec, ctx) {
         <td>${dash(p.avgHr)}</td><td>${dash(p.maxHr)}</td>
         <td>${p.timeInZonePct == null ? '--' : `${fmtClock(p.timeInZoneSec)} <span class="muted">${p.timeInZonePct} %</span>`}</td>
         <td>${p.timeToZoneSec == null ? '--' : fmtClock(p.timeToZoneSec)}</td>
-        <td>${num1(p.avgSpeed)}</td><td>${num1(p.avgIncline)}</td>
+        ${controls.map((c) => `<td>${p.avg[c.key] == null ? '--' : fmtNum(p.avg[c.key], c.dec ? 1 : 0)}</td>`).join('')}
         <td>${p.last2Pct == null ? '--' : fmtNum(p.last2Pct, 0) + ' %'}</td>
       </tr>`,
     )
@@ -46,7 +48,7 @@ export function renderDetail(root, rec, ctx) {
   root.innerHTML = `
     <div class="page page-wide">
       ${backHeader(fmtDate(rec.startedAt, { year: 'numeric' }))}
-      <p class="muted">${esc(fmtTime(rec.startedAt))} · ${esc(rec.finishReason === 'completed' ? t('det.completed') : t('det.ended'))}
+      <p class="muted">${esc(fmtTime(rec.startedAt))} · ${esc(activityName(rec.activity || rec.settings.activity))}${isTest ? ` · ${esc(t('test.title'))}` : ''} · ${esc(rec.finishReason === 'completed' ? t('det.completed') : t('det.ended'))}
         ${rec.source === 'sim' ? ` · <span class="pill pill-sim">${esc(t('wo.sim'))}</span>` : ''}</p>
 
       <div class="tiles tiles-3">
@@ -55,7 +57,9 @@ export function renderDetail(root, rec, ctx) {
         ${tile(t('sum.timeInZone'), dash(o.timeInZonePct, ' %'))}
         ${tile(t('sum.avgHr'), dash(o.avgHr, ' bpm'))}
         ${tile(t('sum.maxHr'), dash(o.maxHr, ' bpm'))}
-        ${tile(t('det.efficiency'), o.efficiency == null ? '--' : fmtNum(o.efficiency, 1) + ' km/h', t('det.efficiencySub'))}
+        ${isTest ? tile(t('test.peakTile'), dash(rec.peakHr, ' bpm'), t('test.peakSub'))
+          : activityOf(rec.settings).id !== 'treadmill' ? tile(t('sum.hrr'), dash(o.avgHrr60, ' bpm'), t('sum.hrrSub'))
+          : tile(t('det.efficiency'), o.efficiency == null ? '--' : fmtNum(o.efficiency, 1) + ' km/h', t('det.efficiencySub'))}
       </div>
 
       <section class="card chart-box">
@@ -70,7 +74,7 @@ export function renderDetail(root, rec, ctx) {
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr><th>#</th><th>${esc(t('det.avg'))}</th><th>${esc(t('det.max'))}</th><th>${esc(t('det.inZone'))}</th>
-              <th>${esc(t('det.toZone'))}</th><th>km/h</th><th>%</th><th>${esc(t('det.last2'))}</th></tr></thead>
+              <th>${esc(t('det.toZone'))}</th>${ctlHead}<th>${esc(t('det.last2'))}</th></tr></thead>
             <tbody>${intervalRows}</tbody>
           </table>
         </div>
@@ -89,10 +93,10 @@ export function renderDetail(root, rec, ctx) {
         <p class="muted small">${esc(t('det.hrrHelp'))}</p>
       </section>
 
-      <section class="card">
+      ${isTest ? '' : `<section class="card">
         <h2>${esc(t('rec.title'))}</h2>
         <p>${esc(recommendationText(r))}</p>
-      </section>
+      </section>`}
 
       <section class="card">
         <h2>${esc(t('sum.rpe'))}</h2>

@@ -1,11 +1,12 @@
-// Optional treadmill suggestions. Pure logic; accepting never controls the treadmill.
+// Optional machine suggestions. Pure logic; accepting never controls the machine.
 
 import { hasMaxHr } from './settings.js';
+import { activityOf, controlStep, roundTo } from './activities.js';
 
 const PERSIST_SEC = 20;
 const SETTLE_SEC = 60;
-const LIMITS = { speed: [1, 25], incline: [0, 20] };
-const round1 = (n) => Math.round(n * 10) / 10;
+// Suggestions never go below these, even where logging can (a walking break, a decline).
+const FLOOR = { speed: 1, incline: 0 };
 
 export class WorkoutCoach {
   constructor() {
@@ -54,17 +55,27 @@ export class WorkoutCoach {
       this._clear();
       return null;
     }
-    let kinds = [settings.adjustPref === 'incline' ? 'incline' : 'speed'];
-    if (settings.adjustPref === 'both') kinds = this._lastKind === 'speed' ? ['incline', 'speed'] : ['speed', 'incline'];
+    const controls = activityOf(settings).controls;
+    let kinds = [];
+    if (controls.length === 1) kinds = [controls[0]];
+    else if (controls.length > 1) {
+      const [a, b] = controls;
+      if (settings.adjustPref === 'incline') kinds = [b];
+      else if (settings.adjustPref === 'both') kinds = this._lastKind === a.key ? [b, a] : [a, b];
+      else kinds = [a];
+    }
     let candidate = null;
-    for (const kind of kinds) {
-      const configured = kind === 'speed' ? settings.speedStep : settings.inclineStep;
-      const step = Math.min(0.5, configured > 0 ? configured : 0.5);
-      const from = s.actual[kind];
-      const [min, max] = LIMITS[kind];
-      const to = round1(Math.max(min, Math.min(max, from + direction * step)));
+    const reason = direction > 0 ? 'below' : 'above';
+    // Outdoors there is no machine: the suggestion is just "a bit faster/easier".
+    if (!controls.length) candidate = { kind: null, from: null, to: null, direction, reason };
+    for (const c of kinds) {
+      const step = Math.min(c.coachMax, controlStep(settings, c));
+      const from = s.actual[c.key];
+      if (!Number.isFinite(from)) continue;
+      const min = Math.max(c.min, FLOOR[c.key] ?? c.min);
+      const to = roundTo(Math.max(min, Math.min(c.max, from + direction * step)), c.dec);
       if (direction * (to - from) > 0) {
-        candidate = { kind, from, to, direction, reason: direction > 0 ? 'below' : 'above' };
+        candidate = { kind: c.key, from, to, direction, reason };
         break;
       }
     }

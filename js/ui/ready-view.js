@@ -1,7 +1,8 @@
 import { t } from '../i18n.js';
-import { fmtNum, phaseName } from '../format.js';
+import { phaseName } from '../format.js';
 import { esc, fields, setText } from './dom.js';
-import { maxHrText } from './views-common.js';
+import { maxHrText, fmtControl } from './views-common.js';
+import { activityOf } from '../activities.js';
 
 /** Live HR check before any workout time or samples are recorded. */
 export class ReadyView {
@@ -10,9 +11,14 @@ export class ReadyView {
     this.ready = ready;
     this.strap = strap;
     const phase = plan.phases[0];
+    const activity = activityOf(settings);
+    const isTest = plan.kind === 'maxTest';
+    const targets = activity.controls
+      .map((c) => `<div><span>${esc(t(c.targetKey))}</span><strong>${esc(fmtControl(c, phase.target[c.key]))}</strong></div>`)
+      .join('');
     root.innerHTML = `
       <header class="ready-top">
-        <h1>${esc(t('ready.title'))}</h1>
+        <h1>${esc(t(isTest ? 'test.title' : 'ready.title'))}</h1>
         ${ready.sim ? `<span class="pill pill-sim">${esc(t('wo.sim'))}</span>` : ''}
       </header>
       <div class="ready-status">
@@ -21,7 +27,7 @@ export class ReadyView {
           <span class="ready-battery" data-f="battery"></span>
         </div>
         <div class="ready-connection" data-f="connection"></div>
-        <div class="ready-connection">${esc(maxHrText(settings))}</div>
+        <div class="ready-connection">${esc(isTest ? t('test.readyNote') : maxHrText(settings))}</div>
       </div>
       <main class="ready-main">
         <div class="ready-pulse">
@@ -39,11 +45,8 @@ export class ReadyView {
       </div>
       <section class="ready-setup">
         <h2>${esc(phaseName(phase, plan.intervals))}</h2>
-        <div class="ready-targets">
-          <div><span>${esc(t('wo.targetSpeed'))}</span><strong>${esc(fmtNum(phase.target.speed, 1))} <small>${esc(t('wo.kmh'))}</small></strong></div>
-          <div><span>${esc(t('wo.targetIncline'))}</span><strong>${esc(fmtNum(phase.target.incline, 1))} <small>${esc(t('wo.pct'))}</small></strong></div>
-        </div>
-        <p>${esc(t('ready.instruction'))}</p>
+        ${targets ? `<div class="ready-targets${activity.controls.length === 1 ? ' ready-targets-one' : ''}">${targets}</div>` : ''}
+        <p>${esc(t('ready.instruction.' + activity.id))}</p>
       </section>
       <footer class="ready-controls">
         <button class="btn" data-action="cancel">${esc(t('wo.cancel'))}</button>

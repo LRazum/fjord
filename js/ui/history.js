@@ -2,7 +2,7 @@ import { t } from '../i18n.js';
 import { fmtClock } from '../format.js';
 import { esc } from './dom.js';
 import { workoutStats, progress } from '../stats.js';
-import { backHeader, fmtDate, fmtTime, tile, dash } from './views-common.js';
+import { backHeader, fmtDate, fmtTime, tile, dash, activityName } from './views-common.js';
 
 /** List of saved workouts, newest first. ctx: { onBack(), onOpen(id), onProgress(), onExportCsv() } */
 export function renderHistory(root, records, ctx) {
@@ -10,17 +10,18 @@ export function renderHistory(root, records, ctx) {
   const items = records
     .map((rec) => {
       const o = workoutStats(rec).overall;
+      const main = rec.kind === 'maxTest'
+        ? `<span>${esc(fmtClock(rec.durationSec))}</span><span>${esc(t('test.title'))}</span><span>${esc(t('test.peakShort', { bpm: dash(rec.peakHr) }))}</span>`
+        : `<span>${esc(fmtClock(rec.durationSec))}</span>
+              <span>${o.intervalsDone}/${o.intervalsPlanned} ${esc(t('hist.intervals'))}</span>
+              <span>${esc(dash(o.avgIntervalPct, ' %'))} ${esc(t('hist.hrmax'))}</span>
+              <span>${esc(dash(o.timeInZonePct, ' %'))} ${esc(t('hist.inZone'))}</span>`;
       return `
         <li>
           <button class="hist-item" data-open="${esc(rec.id)}">
-            <span class="hist-date">${esc(fmtDate(rec.startedAt))} <span class="muted">${esc(fmtTime(rec.startedAt))}</span>
+            <span class="hist-date">${esc(fmtDate(rec.startedAt))} <span class="muted">${esc(fmtTime(rec.startedAt))} · ${esc(activityName(rec.activity || rec.settings.activity))}</span>
               ${rec.source === 'sim' ? `<span class="pill pill-sim">${esc(t('wo.sim'))}</span>` : ''}</span>
-            <span class="hist-main">
-              <span>${esc(fmtClock(rec.durationSec))}</span>
-              <span>${o.intervalsDone}/${o.intervalsPlanned} ${esc(t('hist.intervals'))}</span>
-              <span>${esc(dash(o.avgIntervalPct, ' %'))} ${esc(t('hist.hrmax'))}</span>
-              <span>${esc(dash(o.timeInZonePct, ' %'))} ${esc(t('hist.inZone'))}</span>
-            </span>
+            <span class="hist-main">${main}</span>
           </button>
         </li>`;
     })

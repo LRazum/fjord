@@ -4,9 +4,9 @@ Guide for coding agents working on this repository. Read it fully before changin
 
 ## What Fjord is
 
-A web app for **Norwegian 4×4 interval training on a treadmill**, guided by live heart rate from a Bluetooth chest strap. Default plan: 10 min warm-up, 4 × 4 min intervals at 85–95 % HRmax, 3 min active recovery at 60–70 %, 5 min cool-down. Everything is configurable.
+A web app for **Norwegian 4×4 interval training**, guided by live heart rate from a Bluetooth chest strap or a watch that broadcasts heart rate. Activities: treadmill (the default), gym bike, stepmill, rowing machine, outdoor run and outdoor ride. Default plan: 10 min warm-up, 4 × 4 min intervals at 85–95 % HRmax, 3 min active recovery at 60–70 %, 5 min cool-down. Everything is configurable. A built-in **max HR field test** measures HRmax for users who do not know it.
 
-The user runs on a treadmill with an iPhone in front of them. The workout screen must be readable at a glance and usable with sweaty fingers.
+The user usually trains indoors with an iPhone in front of them. The workout screen must be readable at a glance and usable with sweaty fingers.
 
 ## Hard constraints (do not break)
 
@@ -62,12 +62,13 @@ js/
   hrmath.js           smoothedHr (5 s), hrTrend (18 s slope), zoneStatus (hysteresis), zoneBpm
   hrparse.js          parseHeartRateMeasurement(DataView) for characteristic 0x2A37
   ble.js              StrapConnection (connect, auto-reconnect with backoff, battery), bluetoothSupported()
+  activities.js       ACTIVITIES (treadmill, bike, stepmill, rower, run, ride) and their machine controls
   storage.js          IndexedDB 'fjord': stores 'workouts' (keyPath id) and 'kv' ('current' snapshot)
   stats.js            workoutStats, recommendNext, progress (weekly), weekKey, flatEquivalentSpeed
   backup.js           sessionsCsv, samplesCsv, makeBackup, parseBackup
   export.js           toTcx (Strava/Garmin), trackSeries, exportBaseName
   charts.js           chart geometry only (live strip, workout chart, weekly trend, niceTicks)
-  straps.js           tested strap models + tip keys
+  straps.js           strap and watch models (kind 'strap' | 'watch') + tip keys
   wakelock.js         Screen Wake Lock, falls back to the looping silent video (needs a user gesture)
   format.js           fmtClock, fmtNum (locale decimal), phaseName
   emitter.js          tiny event emitter
@@ -79,7 +80,11 @@ tests/                node:test suites; helpers.js builds synthetic workout reco
 
 ## Key concepts and data shapes
 
-**Plan** (`buildPlan`): `{ phases: [{type, index, durationSec, zone:[lo,hi], target:{speed,incline}, startSec}], intervals, totalSec }`. Phase types are `warmup | interval | recovery | cooldown`. Phases with zero length are left out.
+**Plan** (`buildPlan`): `{ phases: [{type, index, durationSec, zone:[lo,hi], target:{...control values}, startSec}], intervals, totalSec }`. Phase types are `warmup | interval | recovery | cooldown`. Phases with zero length are left out.
+
+**Max HR test** (`buildTestPlan`): `kind: 'maxTest'`, 10 min easy, 3 min hard, 2 min easy, 3 min building to an all-out last minute, 5 min cool-down; phases carry `effort` (`easy|hard|max`) and a `label` i18n key. The session disables coaching and zone status; the result is `peakHr` (highest 5 s smoothed HR). It becomes HRmax only when the user accepts it on the summary (`applyMaxHrTest`). Test records are excluded from `progress()` and recommendations.
+
+**Activities** (`activities.js`): each has `controls` (e.g. treadmill `speed`, `incline`; bike `level`, `cadence`; stepmill `level`; rower `power`, `rate`; outdoor none) with units, limits, decimals, coaching cap and recommendation steps. Targets live in `settings.treadmill` (treadmill) or `settings.targets.{bike,stepmill,rower}`; use `phaseTargets()`/`targetsPath()`. Speed efficiency and TCX distance are treadmill-only. Outdoors, coaching suggestions have `kind: null` ("speed up / ease off") and nothing is logged.
 
 **WorkoutEngine** has the states `ready → running ⇄ paused → finished`. It is driven only by `advance(dtMs)` and has no timers of its own.
 - Events: `state`, `phase`, `cue` (30 s left and 3‑2‑1; currently unused) and `finish` (`completed` or `ended`).
@@ -89,7 +94,7 @@ tests/                node:test suites; helpers.js builds synthetic workout reco
 - **Clock:** time comes from the injectable `now()` and is multiplied by `timeScale`.
 - **Controls:** Pause, Resume, Skip and End settle pending wall-clock time before changing engine state. Resume settles it while still paused, so suspended timers cannot count paused time. A Skip that catches up across a natural phase boundary leaves the newly entered phase running.
 - **Samples:** it records `samples[sec] = bpm | null` at 1 Hz of workout time. Strap readings are timestamped and buffered until consumed. Each sample uses the reading available at its actual wall-clock time (including time scale and pauses); a future reading must never backfill earlier seconds. A reading older than 5 real seconds counts as missing. Ready-to-workout transfer preserves the reading's original age.
-- **Treadmill log:** `treadmillLog` holds `{t, speed, incline, src: 'plan'|'carry'|'user'}`. Rapid +/− taps within 4 s merge into one entry.
+- **Machine log:** `treadmillLog` (name kept for old records) holds `{t, ...control values, src: 'plan'|'carry'|'user'}`. Rapid +/− taps within 4 s merge into one entry.
 - **Carry-over:** a user change in one phase carries to the next phase of the same type (`targets`, `finalTargets`).
 - **Snapshots:** `toSnapshot()` / `new WorkoutSession({restore})` / `attach()` handle crash recovery, and `toRecord()` gives the stored record.
 
@@ -98,13 +103,13 @@ tests/                node:test suites; helpers.js builds synthetic workout reco
 **WorkoutCoach** is owned by `WorkoutSession`. It uses workout seconds, 5 s smoothed HR, the 18 s trend, and the current phase. A deviation beyond the zone by more than 1 percentage point must persist for 20 s. No increases in the first 90 s of an interval (60 s of warm-up), during recovery/cool-down, or while the trend is already heading into the zone. No suggestions in the first/last 30 s of a phase, on pause, without a configured HRmax, with stale/missing HR, disconnection, or no skin contact. Steps are capped at 0.5 km/h or 0.5 percentage points of incline; `both` alternates one control at a time. Confirm/Skip/manual adjustment defers proposals for 60 s. `confirmSuggestion(id)` rechecks the clock, phase and signal, then logs a user change. Suggestions are transient and are not stored in snapshots or records.
 
 **Workout record** (stored in IndexedDB, exported in backups):
-`{ id, startedAt, endedAt, durationSec, finishReason, source:'sim'|'ble', timeScale, settings, plan, phases:[{i,type,index,startSec,endSec,plannedSec,end:'done'|'skipped'|'ended'}], samples, treadmillLog, finalTargets, rpe?, note?, strapName? }`.
+`{ id, startedAt, endedAt, durationSec, finishReason, source:'sim'|'ble', timeScale, settings, plan, phases:[{i,type,index,startSec,endSec,plannedSec,end:'done'|'skipped'|'ended'}], samples, treadmillLog, finalTargets, activity?, kind?:'workout'|'maxTest', peakHr?, rpe?, note?, strapName? }`. Records without `activity` are treadmill workouts (`activityOf(rec.settings)`).
 If you change this shape, keep old records readable and keep `parseBackup` and `BACKUP_FORMAT` in step.
 
 **Settings**:
-- Profile: `lang`, `onboarded`, `maxHr`, `maxHrSource`, `age`, `restHr`, `strapModel`, `hrSource`.
-- Adjusting: `adjustPref`, `speedStep`, `inclineStep`.
-- Plan: `structure.{warmupSec,intervals,intervalSec,recoverySec,cooldownSec}`, `zones.{phase}:[lo,hi]` in % HRmax, `treadmill.{phase}:{speed,incline}`.
+- Profile: `lang`, `onboarded`, `maxHr`, `maxHrSource` (`known|age|test|default`), `maxHrTest` (`{bpm, at, activity}`), `age`, `restHr`, `strapModel` (strap or watch id), `hrSource`, `activity`.
+- Adjusting: `adjustPref` (`'speed'` = first control, `'incline'` = second, `'both'`), `speedStep`, `inclineStep` (treadmill only).
+- Plan: `structure.{warmupSec,intervals,intervalSec,recoverySec,cooldownSec}`, `zones.{phase}:[lo,hi]` in % HRmax, `treadmill.{phase}:{speed,incline}`, `targets.{bike,stepmill,rower}.{phase}:{...}`.
 - Developer: `dev.{timeScale,simProfile}`.
 - Live suggestions: `coachingEnabled` (defaults to true). `maxHrSource` is explicitly chosen as `known` or `age`; `hasMaxHr` rejects the initial fallback and age mode without a valid age. Profile updates use `updateHeartRateSettings`; age estimates are labelled and update with age. Starting a new workout requires a configured HRmax; older saved workouts remain readable.
 
@@ -145,13 +150,14 @@ New keys get defaults in `DEFAULT_SETTINGS`; `mergeDeep` fills them in for old s
 | 3 | Voice (speechSynthesis) and sounds | **dropped by the user for now**; optional text suggestions were subsequently approved and implemented in `coaching.js` |
 | 4 | IndexedDB storage, crash recovery, history, detail, progress, stats, recommendations | done |
 | 5 | Onboarding, settings, JSON backup/import, CSV, TCX, live HR strip, zone in bpm, screen-on video fallback | done |
+| 6 | Watches as HR source, max HR field test, gym bike / stepmill / rower / outdoor run and ride | done; watches **not yet tried with a real device** |
 
-163 tests pass. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips. Session tests cover unticked pauses, precise End/Skip timestamps, natural phase/finish boundaries and timestamped HR catch-up without fabricated data. The live strip grows from a labelled 30-second window to the last three minutes.
+176 tests pass. Milestone 6 was checked in the browser with the simulator: onboarding (watch, test, bike), the max test at 1×-clock fast-forward through to accepting the result, an outdoor run with a suggestion card at 568×320, and a stepmill at 320×480. In headless Firefox, every screen works end to end and the strap flow works with a fake `navigator.bluetooth`. The Ready screen and countdown were checked in both languages at all five phone sizes above, including stale-HR and no-contact warnings. Real countdown timing was checked at 1× and 10× workout speed. Wake Lock tests cover cancellation while acquiring or releasing a lock, late events from an old lock, and the video fallback. Live suggestion and profile tests cover confirmation, rejection, signal loss, pause/phase changes, carry-over, recovery and storage/backup round trips. Session tests cover unticked pauses, precise End/Skip timestamps, natural phase/finish boundaries and timestamped HR catch-up without fabricated data. The live strip grows from a labelled 30-second window to the last three minutes.
 
 ## Known gaps and open items
 
 - **Not tested on a real device yet:**
-  - The Bluefy + iPhone + real strap combination.
+  - The Bluefy + iPhone + real strap combination, and any real watch in heart-rate broadcast mode.
   - Whether the silent-video fallback actually keeps the iPhone screen on.
   - Whether Strava and Garmin accept the TCX files.
 - **Publishing:**

@@ -1,5 +1,7 @@
 // Export of a finished workout record to other formats. DOM-free.
 
+import { activityOf } from './activities.js';
+
 const xml = (v) =>
   String(v).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
 
@@ -33,7 +35,11 @@ export function trackSeries(rec) {
  */
 export function toTcx(rec) {
   const start = Date.parse(rec.startedAt);
-  const { dist, climb } = trackSeries(rec);
+  const activity = activityOf(rec.settings);
+  // Only treadmill settings tell us a distance; elsewhere it stays unknown (0).
+  const hasTrack = activity.id === 'treadmill';
+  const { dist, climb } = hasTrack ? trackSeries(rec) : { dist: [], climb: [] };
+  const d = (s) => dist[s] || 0;
   const st = rec.settings.structure;
   const laps = rec.phases
     .map((p) => ({ type: p.type, s0: Math.round(p.startSec), s1: Math.round(p.endSec ?? rec.durationSec) }))
@@ -48,7 +54,7 @@ export function toTcx(rec) {
       'http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">',
   );
   out.push(' <Activities>');
-  out.push('  <Activity Sport="Running">');
+  out.push(`  <Activity Sport="${activity.sport}">`);
   out.push(`   <Id>${isoSec(start)}</Id>`);
 
   laps.forEach((lap, i) => {
@@ -60,7 +66,7 @@ export function toTcx(rec) {
 
     out.push(`   <Lap StartTime="${isoSec(start + lap.s0 * 1000)}">`);
     out.push(`    <TotalTimeSeconds>${lap.s1 - lap.s0}</TotalTimeSeconds>`);
-    out.push(`    <DistanceMeters>${(dist[lap.s1] - dist[lap.s0]).toFixed(1)}</DistanceMeters>`);
+    out.push(`    <DistanceMeters>${(d(lap.s1) - d(lap.s0)).toFixed(1)}</DistanceMeters>`);
     out.push('    <Calories>0</Calories>');
     if (hr.length) {
       const avg = Math.round(hr.reduce((a, b) => a + b, 0) / hr.length);
@@ -75,8 +81,7 @@ export function toTcx(rec) {
       out.push(
         '     <Trackpoint>' +
           `<Time>${isoSec(start + s * 1000)}</Time>` +
-          `<AltitudeMeters>${climb[s].toFixed(1)}</AltitudeMeters>` +
-          `<DistanceMeters>${dist[s].toFixed(1)}</DistanceMeters>` +
+          (hasTrack ? `<AltitudeMeters>${climb[s].toFixed(1)}</AltitudeMeters><DistanceMeters>${dist[s].toFixed(1)}</DistanceMeters>` : '') +
           (bpm != null ? `<HeartRateBpm><Value>${Math.round(bpm)}</Value></HeartRateBpm>` : '') +
           '</Trackpoint>',
       );
@@ -85,9 +90,18 @@ export function toTcx(rec) {
     out.push('   </Lap>');
   });
 
-  const note =
-    `Fjord: ${rec.plan.intervals} × ${Math.round(st.intervalSec / 60)} min intervals on a treadmill` +
-    (rec.source === 'sim' ? ' (simulated heart rate)' : '');
+  const where = {
+    treadmill: 'on a treadmill',
+    bike: 'on a gym bike',
+    stepmill: 'on a stepmill',
+    rower: 'on a rowing machine',
+    run: 'running outdoors',
+    ride: 'cycling outdoors',
+  }[activity.id];
+  const what = rec.kind === 'maxTest'
+    ? `max heart rate test ${where}` + (rec.peakHr ? ` (peak ${rec.peakHr} bpm)` : '')
+    : `${rec.plan.intervals} × ${Math.round(st.intervalSec / 60)} min intervals ${where}`;
+  const note = `Fjord: ${what}` + (rec.source === 'sim' ? ' (simulated heart rate)' : '');
   out.push(`   <Notes>${xml(note)}</Notes>`);
   out.push('  </Activity>');
   out.push(' </Activities>');

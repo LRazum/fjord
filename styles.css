@@ -1733,3 +1733,99 @@ body.in-workout .toast {
     animation: none;
   }
 }
+
+/* ---------- activities, devices, max HR test ---------- */
+
+.act-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.act-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 56px;
+  padding: 0.55em 0.8em;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.act-btn.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.act-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.act-where {
+  font-size: 0.78rem;
+  opacity: 0.75;
+}
+
+.act-btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-row-inline {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 18px;
+}
+
+.test-card {
+  border-color: var(--warn);
+}
+
+.test-peak {
+  margin: 4px 0;
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+
+.test-peak b {
+  font-size: 2.6rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ready-targets-one {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* One machine control (stepmill) gets the full width; none (outdoors) leaves room for HR. */
+.wo-tread-one {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wo-tread[hidden] {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 700px) {
+  .screen-workout.no-controls {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'top'
+      'main'
+      'ctrl'
+      'coach';
+  }
+
+  .screen-workout.no-controls.has-suggestion {
+    grid-template-areas: 'top' 'main' 'coach' 'ctrl';
+  }
+}

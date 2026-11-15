@@ -6,18 +6,24 @@ import { WorkoutEngine } from './workout.js';
 import { smoothedHr, hrTrend, pctOfMax, zoneStatus } from './hrmath.js';
 import { clone } from './settings.js';
 import { WorkoutCoach } from './coaching.js';
+import { activityOf, pickValues, sameValues, roundTo } from './activities.js';
 
 const TICK_MS = 200;
 const STALE_MS = 5000; // HR older than this (real time) counts as missing
 const MERGE_USER_LOG_SEC = 4; // rapid +/- taps collapse into one log entry
 
-const round1 = (v) => Math.round(v * 10) / 10;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-export const LIMITS = {
-  speed: [0, 25],
-  incline: [-3, 20],
-};
+// Highest 5 s smoothed HR: a single spurious strap value cannot set the test result.
+export function peakHr(samples, end = samples.length - 1) {
+  let peak = null;
+  for (let i = 0; i <= end; i++) {
+    if (samples[i] == null) continue;
+    const v = smoothedHr(samples, i, 5);
+    if (v != null && (peak == null || v > peak)) peak = v;
+  }
+  return peak == null ? null : Math.round(peak);
+}
 
 function newId(now) {
   return 'w' + now.toString(36) + Math.random().toString(36).slice(2, 7);
@@ -37,6 +43,10 @@ export class WorkoutSession extends Emitter {
     super();
     this.settings = clone(settings);
     this.plan = plan;
+    this.activity = activityOf(this.settings);
+    this.isTest = plan.kind === 'maxTest';
+    // A max test is run by effort; zone suggestions would only get in the way.
+    if (this.isTest) this.settings.coachingEnabled = false;
     this.sim = sim;
     this.timeScale = Math.max(1, Math.round(timeScale));
     this.now = now;
@@ -44,8 +54,10 @@ export class WorkoutSession extends Emitter {
 
     this.engine = new WorkoutEngine(plan);
     this.samples = []; // index = workout second, value = bpm | null
-    this.treadmillLog = []; // {t, speed, incline, src: 'plan' | 'carry' | 'user'}
-    this.actual = { speed: 0, incline: 0 };
+    // Machine log: {t, ...control values (e.g. speed, incline), src: 'plan' | 'carry' | 'user'}.
+    this.treadmillLog = [];
+    this.actual = pickValues(this.activity, {});
+    for (const k of Object.keys(this.actual)) this.actual[k] = 0;
     // Current target per phase type. Starts as the plan; when the user changes the
     // treadmill during a phase, the next phase of the same type starts from there.
     this.targets = {};
@@ -63,6 +75,8 @@ export class WorkoutSession extends Emitter {
     this.smooth = null;
     this.trend = null;
     this.zone = null; // 'below' | 'in' | 'above' | null
+    this.peak = null; // highest 5 s smoothed HR so far (shown during a max test)
+    this._simNudge = 0; // outdoor simulator only: accepted "faster/easier" suggestions
     this.coach = new WorkoutCoach();
     this.hrConnected = true;
     this.contact = null;
@@ -89,6 +103,7 @@ export class WorkoutSession extends Emitter {
     const sec = this.samples.length - 1;
     this.smooth = smoothedHr(this.samples, sec, 5);
     this.trend = hrTrend(this.samples, sec, 18);
+    this.peak = peakHr(this.samples);
     if (this.sim) {
       const last = [...this.samples].reverse().find((v) => v != null);
       if (last) this.sim.hr = last;
@@ -101,9 +116,10 @@ export class WorkoutSession extends Emitter {
       const prev = plan.phases[e.prevIndex];
       if (prev && this._adjustedInPhase) this.targets[prev.type] = { ...this.actual };
       this._adjustedInPhase = false;
+      this._simNudge = 0;
       this._applyTargets(e.phase);
       // Re-evaluate against the new phase's zone right away (no hysteresis carry-over).
-      this.zone = zoneStatus(pctOfMax(this.smooth, this.settings.maxHr), e.phase.zone, null);
+      this.zone = this._zoneFor(e.phase, null);
       this._updateCoaching();
       this.emit('phase', e);
     });
@@ -257,7 +273,12 @@ export class WorkoutSession extends Emitter {
     const p = this.coach.suggestion;
     if (!p || p.id !== id) return false;
     this.coach.defer(this.engine.elapsedMs / 1000, 60, p.kind);
-    this.adjust(p.kind, p.to - this.actual[p.kind]);
+    if (p.kind) this.adjust(p.kind, p.to - this.actual[p.kind]);
+    else {
+      // Outdoors there is nothing to log; only the simulated runner reacts.
+      this._simNudge += p.direction * 0.04;
+      this.emit('tick', this.snapshot());
+    }
     return true;
   }
 
@@ -268,10 +289,11 @@ export class WorkoutSession extends Emitter {
     this.emit('tick', this.snapshot());
   }
 
-  /** Change the logged treadmill speed or incline by `delta`. */
+  /** Change a logged machine setting (e.g. treadmill speed) by `delta`. */
   adjust(kind, delta) {
-    const [lo, hi] = LIMITS[kind];
-    const value = round1(clamp(this.actual[kind] + delta, lo, hi));
+    const c = this.activity.controls.find((x) => x.key === kind);
+    if (!c || !Number.isFinite(delta)) return;
+    const value = roundTo(clamp(this.actual[kind] + delta, c.min, c.max), c.dec);
     if (value === this.actual[kind]) return;
     this.coach.defer(this.engine.elapsedMs / 1000);
     this.actual[kind] = value;
@@ -279,11 +301,10 @@ export class WorkoutSession extends Emitter {
     const t = Math.floor(this.engine.elapsedMs / 1000);
     const last = this.treadmillLog[this.treadmillLog.length - 1];
     if (last && last.src === 'user' && t - last.t <= MERGE_USER_LOG_SEC) {
-      last.speed = this.actual.speed;
-      last.incline = this.actual.incline;
+      Object.assign(last, this.actual);
       last.t = t;
     } else {
-      this.treadmillLog.push({ t, speed: this.actual.speed, incline: this.actual.incline, src: 'user' });
+      this.treadmillLog.push({ t, ...this.actual, src: 'user' });
     }
     this.emit('treadmill', { actual: { ...this.actual } });
     this.emit('tick', this.snapshot());
@@ -333,11 +354,17 @@ export class WorkoutSession extends Emitter {
   }
 
   _stepSim(dtSec, moving) {
-    const bpm = this.sim.step(dtSec, {
-      speed: this.actual.speed,
-      incline: this.actual.incline,
-      moving,
-    });
+    const e = this.engine;
+    const phase = e.phase;
+    const ctx = { activity: this.activity.id, values: this.actual, moving };
+    if (phase && moving) {
+      const progress = phase.durationSec ? Math.min(1, e.phaseElapsedMs / 1000 / phase.durationSec) : 0;
+      // Without machine settings, the simulated athlete follows the phase's intent.
+      if (!this.activity.controls.length) ctx.effort = this.sim.zoneEffort(phase.zone) + this._simNudge;
+      if (phase.effort === 'hard') ctx.effortFloor = 0.88;
+      if (phase.effort === 'max') ctx.effortFloor = 0.9 + 0.2 * progress;
+    }
+    const bpm = this.sim.step(dtSec, ctx);
     this.lastHr = bpm;
     this.lastHrAt = this.now();
     this.emit('hr', { bpm });
@@ -376,22 +403,28 @@ export class WorkoutSession extends Emitter {
     this.samples[sec] = bpm;
     this.smooth = smoothedHr(this.samples, sec, 5);
     this.trend = hrTrend(this.samples, sec, 18);
-    const phase = this.engine.phase;
-    if (phase) {
-      this.zone = zoneStatus(pctOfMax(this.smooth, this.settings.maxHr), phase.zone, this.zone);
+    if (bpm != null && this.smooth != null && (this.peak == null || this.smooth > this.peak)) {
+      this.peak = Math.round(this.smooth);
     }
+    const phase = this.engine.phase;
+    if (phase) this.zone = this._zoneFor(phase, this.zone);
     this._updateCoaching();
   }
 
-  /** Assume the user sets the treadmill to the phase target; they correct it with +/-. */
+  // A max test has no personal HRmax to compare against yet.
+  _zoneFor(phase, prev) {
+    if (this.isTest) return null;
+    return zoneStatus(pctOfMax(this.smooth, this.settings.maxHr), phase.zone, prev);
+  }
+
+  /** Assume the user sets the machine to the phase target; they correct it with +/-. */
   _applyTargets(phase) {
-    const target = this.targets[phase.type];
-    const planned = target.speed === phase.target.speed && target.incline === phase.target.incline;
+    const target = this.targets[phase.type] || {};
+    const planned = sameValues(this.activity, target, phase.target);
     this.actual = { ...target };
     this.treadmillLog.push({
       t: Math.floor(this.engine.elapsedMs / 1000),
-      speed: this.actual.speed,
-      incline: this.actual.incline,
+      ...this.actual,
       src: planned ? 'plan' : 'carry',
     });
     this.emit('treadmill', { actual: { ...this.actual } });
@@ -442,6 +475,8 @@ export class WorkoutSession extends Emitter {
       source: this.sim ? 'sim' : 'ble',
       battery: this.battery,
       suggestion: this.coach.suggestion,
+      peak: this.peak,
+      isTest: this.isTest,
     };
   }
 
@@ -461,6 +496,9 @@ export class WorkoutSession extends Emitter {
       samples: this.samples.slice(),
       treadmillLog: clone(this.treadmillLog),
       finalTargets: clone(this.targets),
+      activity: this.activity.id,
+      kind: this.isTest ? 'maxTest' : 'workout',
+      ...(this.isTest ? { peakHr: peakHr(this.samples) } : {}),
     };
   }
 }

@@ -2,6 +2,7 @@
 
 import { smoothedHr, zoneStatus } from './hrmath.js';
 import { hasMaxHr } from './settings.js';
+import { activityOf, phaseTargets, preferredControls, roundTo } from './activities.js';
 
 const LAST_SEC = 120; // "last 2 min" of an interval
 const HRR_SEC = 60; // heart-rate recovery after 1 min
@@ -16,18 +17,17 @@ export function flatEquivalentSpeed(speed, incline) {
   return speed * (1 + 4.5 * (Math.max(0, incline) / 100));
 }
 
-/** Treadmill setting in force at every second [0, n). */
-export function settingsPerSecond(log, n) {
+/** Machine setting in force at every second [0, n), per control key. */
+export function settingsPerSecond(log, n, keys = ['speed', 'incline']) {
   const sorted = log.slice().sort((a, b) => a.t - b.t);
-  const speed = new Array(n);
-  const incline = new Array(n);
+  const out = {};
+  for (const key of keys) out[key] = new Array(n);
   let k = -1;
   for (let s = 0; s < n; s++) {
     while (k + 1 < sorted.length && sorted[k + 1].t <= s) k++;
-    speed[s] = k >= 0 ? sorted[k].speed : null;
-    incline[s] = k >= 0 ? sorted[k].incline : null;
+    for (const key of keys) out[key][s] = k >= 0 && Number.isFinite(sorted[k][key]) ? sorted[k][key] : null;
   }
-  return { speed, incline };
+  return out;
 }
 
 function hrStats(values) {
@@ -44,7 +44,10 @@ export function workoutStats(rec) {
   const maxHr = rec.settings.maxHr;
   const n = rec.durationSec;
   const samples = rec.samples;
-  const tm = settingsPerSecond(rec.treadmillLog, n);
+  const activity = activityOf(rec.settings);
+  const keys = activity.controls.map((c) => c.key);
+  const tm = settingsPerSecond(rec.treadmillLog, n, keys);
+  const isTreadmill = activity.id === 'treadmill';
 
   const phases = rec.phases
     .map((p) => {
@@ -88,17 +91,18 @@ export function workoutStats(rec) {
       out.timeInZoneSec = inZone;
       out.timeInZonePct = measured ? round((inZone / measured) * 100) : null;
 
-      const sp = secs.map((s) => tm.speed[s]).filter((v) => v != null);
-      const inc = secs.map((s) => tm.incline[s]).filter((v) => v != null);
-      out.avgSpeed = r1(mean(sp));
-      out.avgIncline = r1(mean(inc));
+      out.avg = {};
+      for (const key of keys) out.avg[key] = r1(mean(secs.map((s) => tm[key][s]).filter((v) => v != null)));
+      out.avgSpeed = isTreadmill ? out.avg.speed : null;
+      out.avgIncline = isTreadmill ? out.avg.incline : null;
 
       if (p.type === 'interval') {
         out.timeToZoneSec = firstIn;
         const tail = secs.slice(-LAST_SEC);
         const tailHr = tail.map((s) => samples[s]).filter((v) => v != null);
         out.last2Pct = tailHr.length ? r1((mean(tailHr) / maxHr) * 100) : null;
-        const tailEq = tail
+        // Speed efficiency only means something on a treadmill.
+        const tailEq = !isTreadmill ? [] : tail
           .filter((s) => tm.speed[s] != null)
           .map((s) => flatEquivalentSpeed(tm.speed[s], tm.incline[s]));
         out.last2FlatSpeed = tailEq.length ? mean(tailEq) : null;
@@ -125,6 +129,8 @@ export function workoutStats(rec) {
   const intervalInZone = intervals.reduce((a, p) => a + p.timeInZoneSec, 0);
 
   const efficiency = efficiencyOf(counted, maxHr);
+  const avgInterval = {};
+  for (const key of keys) avgInterval[key] = r1(mean(intervals.map((p) => p.avg[key]).filter((v) => v != null)));
 
   return {
     phases,
@@ -140,10 +146,13 @@ export function workoutStats(rec) {
       avgIntervalPct: r1(mean(counted.map((p) => p.last2Pct).filter((v) => v != null))),
       timeInZoneSec: intervalInZone,
       timeInZonePct: intervalSecs ? round((intervalInZone / intervalSecs) * 100) : null,
-      avgIntervalSpeed: r1(mean(intervals.map((p) => p.avgSpeed).filter((v) => v != null))),
-      avgIntervalIncline: r1(mean(intervals.map((p) => p.avgIncline).filter((v) => v != null))),
+      avgIntervalSpeed: isTreadmill ? avgInterval.speed : null,
+      avgIntervalIncline: isTreadmill ? avgInterval.incline : null,
+      avgInterval,
+      activity: activity.id,
       avgHrr60: round(mean(phases.map((p) => p.hrr60).filter((v) => v != null))),
       efficiency,
+      peakHr: rec.kind === 'maxTest' ? rec.peakHr ?? null : null,
     },
   };
 }
@@ -167,32 +176,47 @@ function efficiencyOf(intervals, maxHr) {
 export function recommendNext(rec, stats = workoutStats(rec)) {
   const s = rec.settings;
   const zone = s.zones.interval;
+  const activity = activityOf(s);
   const counted = stats.intervals.filter((p) => p.counts && p.last2Pct != null);
-  const base = { ...((rec.finalTargets && rec.finalTargets.interval) || s.treadmill.interval) };
-  if (!hasMaxHr(s)) return { action: 'none', reason: 'maxHr', base, next: base, pct: null };
-  if (counted.length < 2) return { action: 'none', reason: 'tooShort', base, next: base, pct: null };
+  const base = { ...((rec.finalTargets && rec.finalTargets.interval) || phaseTargets(s, activity.id).interval) };
+  const out = (o) => ({ activity: activity.id, applicable: activity.controls.length > 0, ...o });
+  if (rec.kind === 'maxTest') return out({ action: 'none', reason: 'test', base, next: base, pct: null });
+  if (!hasMaxHr(s)) return out({ action: 'none', reason: 'maxHr', base, next: base, pct: null });
+  if (counted.length < 2) return out({ action: 'none', reason: 'tooShort', base, next: base, pct: null });
 
   const pct = r1(mean(counted.map((p) => p.last2Pct)));
   let dir = 0;
   if (pct < zone[0]) dir = 1;
   else if (pct > zone[1]) dir = -1;
-  if (!dir) return { action: 'keep', pct, base, next: base };
+  if (!dir) return out({ action: 'keep', pct, base, next: base });
 
   const off = dir > 0 ? zone[0] - pct : pct - zone[1];
   const steps = off >= 4 ? 2 : 1;
   const next = { ...base };
-  const pref = s.adjustPref;
-  if (pref === 'incline') next.incline = base.incline + dir * steps * 1;
-  else if (pref === 'both') {
-    next.speed = base.speed + dir * steps * 0.5;
-    next.incline = base.incline + dir * 0.5;
-  } else next.speed = base.speed + dir * steps * 0.5;
-  next.speed = Math.max(1, r1(next.speed));
-  next.incline = Math.max(0, r1(next.incline));
-  return { action: dir > 0 ? 'harder' : 'easier', pct, base, next };
+  const chosen = preferredControls(s, activity);
+  const both = chosen.length > 1;
+  chosen.forEach((c, i) => {
+    if (!Number.isFinite(base[c.key])) return;
+    // With both, the first control takes the full step and the second a single one.
+    const change = both ? (i === 0 ? steps : 1) * c.bothStep : steps * c.nextStep;
+    next[c.key] = Math.min(c.max, Math.max(c.recMin, roundTo(base[c.key] + dir * change, c.dec)));
+  });
+  return out({ action: dir > 0 ? 'harder' : 'easier', pct, base, next });
 }
 
 // ---------- progress over weeks ----------
+
+function avgByKey(overalls) {
+  const out = {};
+  for (const o of overalls) {
+    for (const key of Object.keys(o.avgInterval || {})) {
+      if (!out[key]) out[key] = [];
+      if (o.avgInterval[key] != null) out[key].push(o.avgInterval[key]);
+    }
+  }
+  for (const key of Object.keys(out)) out[key] = r1(mean(out[key]));
+  return out;
+}
 
 /** Monday 00:00 local time of the week `date` falls in, as YYYY-MM-DD. */
 export function weekKey(date) {
@@ -213,7 +237,9 @@ function nextWeek(key) {
  * @param {Date} [today]
  */
 export function progress(records, today = new Date()) {
+  // A max test is not a training session: it would distort the weekly trends.
   const items = records
+    .filter((rec) => rec.kind !== 'maxTest')
     .map((rec) => ({ rec, stats: workoutStats(rec) }))
     .sort((a, b) => Date.parse(a.rec.startedAt) - Date.parse(b.rec.startedAt));
 
@@ -236,6 +262,7 @@ export function progress(records, today = new Date()) {
       timeInZonePct: round(pick((x) => x.timeInZonePct)),
       avgSpeed: pick((x) => x.avgIntervalSpeed),
       avgIncline: pick((x) => x.avgIntervalIncline),
+      avg: avgByKey(o),
       efficiency: pick((x) => x.efficiency),
       intervalMin: Math.round(o.reduce((a, x) => a + x.intervalSec, 0) / 60),
     };

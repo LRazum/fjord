@@ -3,10 +3,27 @@
 import { t } from '../i18n.js';
 import { fmtNum } from '../format.js';
 import { esc, listen } from './dom.js';
-import { hasMaxHr } from '../settings.js';
+import { hasMaxHr, maxHrTestPending } from '../settings.js';
+import { activityById } from '../activities.js';
 
 export function maxHrText(s) {
-  return hasMaxHr(s) ? t(s.maxHrSource === 'age' ? 'hr.estimated' : 'hr.known', { bpm: s.maxHr }) : t('hr.unsetShort');
+  if (!hasMaxHr(s)) return t(maxHrTestPending(s) ? 'hr.testPendingShort' : 'hr.unsetShort');
+  const key = s.maxHrSource === 'age' ? 'hr.estimated' : s.maxHrSource === 'test' ? 'hr.tested' : 'hr.known';
+  return t(key, { bpm: s.maxHr });
+}
+
+export const activityName = (id) => t('act.' + activityById(id).id);
+
+/** One control value with its unit, e.g. "10,5 km/h" or "level 8". */
+export function fmtControl(c, v) {
+  if (v == null || !Number.isFinite(v)) return '--';
+  if (!c.unitKey) return t('ctl.levelValue', { n: fmtNum(v, c.dec) });
+  return `${fmtNum(v, c.dec)} ${t(c.unitKey)}`;
+}
+
+/** All planned values of an activity, e.g. "10,5 km/h · 2,0 %"; '' outdoors. */
+export function fmtTargets(activityId, values) {
+  return activityById(activityId).controls.map((c) => fmtControl(c, values && values[c.key])).join(' · ');
 }
 
 export const tile = (label, value, sub = '') =>
@@ -33,12 +50,12 @@ export function backHeader(title, action = 'back') {
 
 /** Sentence describing a recommendation from stats.recommendNext(). */
 export function recommendationText(r) {
-  const next = `${fmtNum(r.next.speed, 1)} km/h · ${fmtNum(r.next.incline, 1)} %`;
   const pct = r.pct == null ? '' : fmtNum(r.pct, 0);
-  if (r.action === 'harder') return t('rec.harder', { pct, next });
-  if (r.action === 'easier') return t('rec.easier', { pct, next });
-  if (r.action === 'keep') return t('rec.keep', { pct, next });
-  return t(r.reason === 'maxHr' ? 'rec.needMaxHr' : 'rec.none');
+  if (r.action === 'none') return t(r.reason === 'maxHr' ? 'rec.needMaxHr' : r.reason === 'test' ? 'rec.test' : 'rec.none');
+  // Outdoors there is no machine setting to plan, only the effort.
+  if (r.applicable === false) return t('rec.' + r.action + 'Free', { pct });
+  const next = fmtTargets(r.activity || 'treadmill', r.next);
+  return t('rec.' + r.action, { pct, next });
 }
 
 export function rpeButtons(value) {
